@@ -681,6 +681,78 @@
       background: var(--danger);
     }
 
+    .wiki-callout {
+      padding: 11px 12px;
+      border-left: 4px solid var(--accent-2);
+      border-radius: 10px;
+      background: rgba(82,127,80,.12);
+      color: #4f5d50;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .wiki-list {
+      display: grid;
+      gap: 7px;
+    }
+
+    .wiki-row {
+      display: grid;
+      grid-template-columns: minmax(108px, .85fr) minmax(0, 1.6fr);
+      gap: 10px;
+      align-items: start;
+      padding: 9px 10px;
+      border-radius: 11px;
+      background: rgba(65,80,63,.075);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+
+    .wiki-row strong {
+      font-size: 12px;
+      line-height: 1.25;
+    }
+
+    .wiki-row span {
+      color: #626d62;
+    }
+
+    .wiki-details {
+      overflow: hidden;
+      border: 1px solid rgba(40,50,41,.12);
+      border-radius: 13px;
+      background: rgba(255,255,255,.34);
+    }
+
+    .wiki-details + .wiki-details { margin-top: 8px; }
+
+    .wiki-details summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px;
+      cursor: pointer;
+      font-weight: 800;
+      list-style: none;
+    }
+
+    .wiki-details summary::-webkit-details-marker { display: none; }
+    .wiki-details summary::after { content: "⌄"; font-size: 18px; }
+    .wiki-details[open] summary::after { transform: rotate(180deg); }
+
+    .wiki-details-body {
+      padding: 0 10px 10px;
+    }
+
+    .wiki-mini {
+      margin-top: 5px;
+      color: #687168;
+      font-size: 10px;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+
     .victory-mark {
       display: block;
       margin: 2px auto 10px;
@@ -794,6 +866,16 @@
         <button class="close-btn" data-close="menuModal" aria-label="Закрыть">×</button>
       </header>
       <div id="menuContent" class="sheet-scroll"></div>
+    </section>
+  </div>
+
+  <div id="wikiModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="wikiModalTitle">
+    <section class="sheet">
+      <header class="sheet-head">
+        <h2 id="wikiModalTitle">Вики и правила</h2>
+        <button class="close-btn" data-close="wikiModal" aria-label="Закрыть">×</button>
+      </header>
+      <div id="wikiContent" class="sheet-scroll"></div>
     </section>
   </div>
 
@@ -940,6 +1022,7 @@
   const cityContent = document.getElementById("cityContent");
   const scienceContent = document.getElementById("scienceContent");
   const menuContent = document.getElementById("menuContent");
+  const wikiContent = document.getElementById("wikiContent");
   const victoryContent = document.getElementById("victoryContent");
 
   let state = loadGame() || createNewGame();
@@ -1124,6 +1207,7 @@
     state.map.forEach(function (row) {
       row.forEach(function (tile) {
         if (!tile.improvement) return;
+        addYield(income, TERRAIN[tile.terrain].base);
         addYield(income, IMPROVEMENTS[tile.improvement].yield);
         if (tile.feature && tile.feature !== "ruins") addYield(income, FEATURES[tile.feature].bonus);
       });
@@ -1537,6 +1621,95 @@
     openModal("scienceModal");
   }
 
+  function terrainNames(terrainIds) {
+    return terrainIds.map(function (id) { return TERRAIN[id].icon + " " + TERRAIN[id].name; }).join(", ");
+  }
+
+  function techRequirement(techId) {
+    return techId ? TECHS[techId].icon + " " + TECHS[techId].name : "Доступно сразу";
+  }
+
+  function wikiRow(title, text) {
+    return '<div class="wiki-row"><strong>' + title + '</strong><span>' + text + '</span></div>';
+  }
+
+  function openWiki() {
+    const currentNeed = growthNeed(state.city.population);
+
+    const resources = [
+      wikiRow("🍞 Еда", "Копится между ходами. В конце хода при достижении порога город автоматически получает +1 население, а нужная еда списывается. Формула порога: 12 + население × 7. Сейчас нужно " + currentNeed + "."),
+      wikiRow("🔨 Производство", "Тратится на улучшения клеток и здания. Само строительство происходит сразу после оплаты — очереди строительства пока нет."),
+      wikiRow("🪙 Золото", "Нужно для части улучшений и зданий. Пока нет содержания юнитов, торговли с соперниками или покупки клеток."),
+      wikiRow("🔬 Наука", "Идёт в выбранную технологию. Проверка завершения происходит в конце хода; стоимость списывается, остаток науки сохраняется.")
+    ].join("");
+
+    const terrain = Object.keys(TERRAIN).map(function (id) {
+      const def = TERRAIN[id];
+      return wikiRow(def.icon + " " + def.name, "Базовый доход клетки: " + yieldText(def.base) + ". Он учитывается у клетки города и у любой клетки, на которой построено улучшение.");
+    }).join("");
+
+    const features = Object.keys(FEATURES).map(function (id) {
+      const def = FEATURES[id];
+      const text = id === "ruins"
+        ? "Одноразовая находка. Срабатывает, когда разведчик входит на клетку: даёт случайный запас еды, производства, золота или науки."
+        : "Бонус " + yieldText(def.bonus) + " добавляется только после строительства подходящего улучшения на этой клетке.";
+      return wikiRow(def.icon + " " + def.name, text);
+    }).join("");
+
+    const improvements = Object.keys(IMPROVEMENTS).map(function (id) {
+      const def = IMPROVEMENTS[id];
+      return '<article class="game-card"><div><h3>' + def.icon + ' ' + def.name + '</h3><p>' +
+        def.description + '<br>Клетки: ' + terrainNames(def.terrain) + '<br>Условие: ' + techRequirement(def.tech) +
+        '</p></div><strong>' + formatCost(def.cost) + '</strong></article>';
+    }).join("");
+
+    const buildings = Object.keys(BUILDINGS).map(function (id) {
+      const def = BUILDINGS[id];
+      let extra = "Условие: " + techRequirement(def.tech);
+      if (id === "palace") extra += " и население 6";
+      return '<article class="game-card"><div><h3>' + def.icon + ' ' + def.name + '</h3><p>' + def.description + '<br>' + extra +
+        '</p></div><strong>' + formatCost(def.cost) + '</strong></article>';
+    }).join("");
+
+    const techs = Object.keys(TECHS).map(function (id) {
+      const def = TECHS[id];
+      const prereq = def.prereq.length
+        ? def.prereq.map(function (req) { return TECHS[req].name; }).join(", ")
+        : "нет";
+      return '<article class="game-card"><div><h3>' + def.icon + ' ' + def.name + '</h3><p>Открывает: ' + def.unlock + '<br>Предыдущие технологии: ' + prereq +
+        '</p></div><strong>🔬 ' + def.cost + '</strong></article>';
+    }).join("");
+
+    wikiContent.innerHTML =
+      '<div class="section-title">Главное о текущей версии</div>' +
+      '<div class="wiki-callout"><strong>Да, юнит пока один.</strong> Разведчик открывает карту, но ничего не строит. Улучшения возводятся условным населением города по твоему приказу на любой открытой клетке внутри городской территории. Рабочих, воинов, поселенцев, найма юнитов и второго города в v1.1 ещё нет.</div>' +
+
+      '<div class="section-title">Разведчик и территория</div>' +
+      '<div class="wiki-list">' +
+        wikiRow("🧭 Разведчик", "Один раз за ход переходит на соседнюю клетку суши, включая диагональ. В воду входить не может. После движения открывает свою клетку и область 3×3 вокруг неё.") +
+        wikiRow("🏛️ Территория", "Строить улучшения можно только на открытых клетках в радиусе города. При населении 1–2 радиус равен 1 клетке; при 3–5 — 2; при 6 и выше — 3. Расстояние разведчика до стройки не имеет значения.") +
+        wikiRow("🔨 Строительство", "Если клетка подходит, технология открыта и ресурсов хватает, улучшение появляется сразу. На одной клетке может быть только одно улучшение.") +
+        wikiRow("☀️ Конец хода", "Начисляет весь доход, проверяет рост населения и завершение технологии, иногда запускает случайное событие, затем возвращает ход разведчику.") +
+      '</div>' +
+
+      '<div class="section-title">Как считается доход</div>' +
+      '<div class="wiki-callout">Город каждый ход даёт базово 🍞 2 + половину населения с округлением вниз, 🔨 2, 🪙 1 и 🔬 2. Дополнительно учитываются местность под городом, полный доход каждой улучшенной клетки и все здания. Назначать жителей на клетки пока не нужно.</div>' +
+
+      '<details class="wiki-details" open><summary>Ресурсы</summary><div class="wiki-details-body"><div class="wiki-list">' + resources + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Типы местности</summary><div class="wiki-details-body"><div class="wiki-list">' + terrain + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Особенности клеток</summary><div class="wiki-details-body"><div class="wiki-list">' + features + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Улучшения клеток</summary><div class="wiki-details-body"><div class="card-list">' + improvements + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Здания города</summary><div class="wiki-details-body"><div class="card-list">' + buildings + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Технологии</summary><div class="wiki-details-body"><div class="card-list">' + techs + '</div></div></details>' +
+
+      '<div class="section-title">Условие победы</div>' +
+      '<div class="wiki-callout">Изучи «Государственность», вырасти до населения 6, накопи 🔨 80 и 🪙 30, затем построй 🏰 Дворец.</div>' +
+      '<div class="section-title">Ограничения v1.1</div>' +
+      '<div class="inline-note">Пока нет рабочих, очереди производства, найма юнитов, боёв, противников, дорог, содержания армии, второго города и поселенцев. Это следующие системы, которые можно добавлять по одной.</div>';
+
+    openModal("wikiModal");
+  }
+
   function openMenu() {
     const saved = safeGet(SAVE_KEY) ? "Игра автоматически сохранена на этом устройстве." : "Сохранение пока недоступно в этом режиме.";
     const history = state.history.length
@@ -1547,7 +1720,7 @@
       '<div class="section-title">Как играть</div>' +
       '<div class="inline-note">' +
         '<strong>1.</strong> Нажми соседнюю клетку и отправь туда разведчика.<br>' +
-        '<strong>2.</strong> Строй фермы, шахты и другие улучшения внутри территории города.<br>' +
+        '<strong>2.</strong> Строй фермы, шахты и другие улучшения на открытых клетках внутри территории города — разведчик для этого не нужен.<br>' +
         '<strong>3.</strong> Завершай ходы, копи ресурсы, исследуй технологии и возводи здания.<br>' +
         '<strong>Цель:</strong> изучить государственность, вырастить население до 6 и построить дворец.' +
       '</div>' +
@@ -1555,10 +1728,15 @@
       '<div class="section-title">Последние события</div><div class="built-list">' + history + '</div>' +
       '<div class="section-title">Игра</div>' +
       '<div class="menu-actions">' +
+        '<button id="wikiBtn" class="wide-btn secondary">📖 Вики: что на что влияет</button>' +
         '<button id="closeMenuWide" class="wide-btn">Продолжить</button>' +
         '<button id="newGameBtn" class="wide-btn danger">Начать новый мир</button>' +
       '</div>';
 
+    document.getElementById("wikiBtn").addEventListener("click", function () {
+      closeModal("menuModal");
+      openWiki();
+    });
     document.getElementById("closeMenuWide").addEventListener("click", function () { closeModal("menuModal"); });
     document.getElementById("newGameBtn").addEventListener("click", newGameWithConfirmation);
     openModal("menuModal");
@@ -1595,6 +1773,7 @@
     state = createNewGame();
     selected = null;
     closeModal("menuModal");
+    closeModal("wikiModal");
     closeModal("victoryModal");
     showToast("Новый мир создан. Земледелие уже исследуется.");
     render();
