@@ -1,0 +1,1665 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#27382d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Эпохи">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+  <title>Эпохи — пошаговая стратегия</title>
+  <style>
+    :root {
+      --bg: #18231c;
+      --panel: #26382c;
+      --panel-2: #314636;
+      --paper: #efe5c7;
+      --paper-2: #d9caa5;
+      --ink: #283229;
+      --muted: #7e8f82;
+      --gold: #d4ae55;
+      --accent: #79a968;
+      --accent-2: #527f50;
+      --danger: #9b5149;
+      --line: rgba(255,255,255,.12);
+      --shadow: 0 12px 34px rgba(0,0,0,.28);
+      --map-size: min(94vw, calc(100dvh - 318px), 520px);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      overscroll-behavior: none;
+      background: var(--bg);
+    }
+
+    body {
+      position: fixed;
+      inset: 0;
+      height: 100dvh;
+      color: #f6f1df;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      padding:
+        max(8px, env(safe-area-inset-top))
+        max(9px, env(safe-area-inset-right))
+        max(9px, env(safe-area-inset-bottom))
+        max(9px, env(safe-area-inset-left));
+    }
+
+    button {
+      appearance: none;
+      border: 0;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      cursor: default;
+      opacity: .42;
+    }
+
+    .app {
+      width: min(100%, 620px);
+      height: 100%;
+      margin: 0 auto;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+      gap: 7px;
+      overflow: hidden;
+    }
+
+    .topbar {
+      min-height: 43px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 4px;
+    }
+
+    .brand {
+      min-width: 0;
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(27px, 8vw, 39px);
+      font-weight: 700;
+      letter-spacing: .5px;
+      line-height: .95;
+    }
+
+    .brand p {
+      margin: 3px 0 0;
+      color: #b6c2b8;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .turn-card {
+      flex: 0 0 auto;
+      min-width: 86px;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255,255,255,.06);
+      text-align: center;
+      box-shadow: inset 0 1px rgba(255,255,255,.06);
+    }
+
+    .turn-card small {
+      display: block;
+      color: #acbbaf;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+    }
+
+    .turn-card strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 17px;
+      line-height: 1.1;
+    }
+
+    .resources {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+
+    .resource {
+      min-width: 0;
+      height: 42px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 7px;
+      border-radius: 10px;
+      background: rgba(255,255,255,.075);
+      border: 1px solid rgba(255,255,255,.08);
+    }
+
+    .resource .icon {
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .resource .numbers {
+      min-width: 0;
+    }
+
+    .resource strong {
+      display: block;
+      font-size: 16px;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .resource small {
+      display: block;
+      margin-top: 3px;
+      color: #aebbb1;
+      font-size: 9px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .map-zone {
+      min-height: 0;
+      display: grid;
+      place-items: center;
+    }
+
+    .map-shell {
+      position: relative;
+      width: var(--map-size);
+      height: var(--map-size);
+      min-width: 286px;
+      min-height: 286px;
+      max-width: 100%;
+      max-height: 100%;
+      padding: 5px;
+      border-radius: 16px;
+      background: #0e1711;
+      box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,255,255,.08);
+      touch-action: none;
+    }
+
+    .map {
+      width: 100%;
+      height: 100%;
+      display: grid;
+      grid-template-columns: repeat(12, 1fr);
+      grid-template-rows: repeat(12, 1fr);
+      gap: 1px;
+      overflow: hidden;
+      border-radius: 12px;
+      background: rgba(255,255,255,.06);
+      touch-action: none;
+    }
+
+    .tile {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      overflow: hidden;
+      border-radius: 2px;
+      color: #162019;
+      font-size: clamp(12px, calc(var(--map-size) / 23), 24px);
+      line-height: 1;
+      touch-action: none;
+      transition: filter 80ms ease, transform 80ms ease, box-shadow 80ms ease;
+    }
+
+    .tile:active {
+      filter: brightness(1.15);
+      transform: scale(.94);
+    }
+
+    .tile.selected {
+      z-index: 3;
+      box-shadow: inset 0 0 0 2px #fff3b1, 0 0 0 1px #26382c;
+      filter: brightness(1.1);
+    }
+
+    .tile.fog {
+      background:
+        radial-gradient(circle at 65% 28%, rgba(255,255,255,.04), transparent 34%),
+        #17241b;
+      color: rgba(255,255,255,.18);
+    }
+
+    .tile.plains { background: #91aa69; }
+    .tile.forest { background: #527649; }
+    .tile.hill { background: #9a8a69; }
+    .tile.water { background: #4d8192; }
+    .tile.desert { background: #c4a968; }
+
+    .terrain-icon {
+      position: relative;
+      z-index: 1;
+      transform: scale(.86);
+      filter: saturate(.9);
+    }
+
+    .piece, .feature, .improvement {
+      position: absolute;
+      z-index: 4;
+      display: grid;
+      place-items: center;
+      text-shadow: 0 1px 2px rgba(0,0,0,.65);
+      pointer-events: none;
+    }
+
+    .piece {
+      inset: 0;
+      font-size: 1.02em;
+      transform: scale(1.05);
+    }
+
+    .piece.city {
+      font-size: 1.12em;
+      filter: drop-shadow(0 1px 1px rgba(0,0,0,.75));
+    }
+
+    .piece.scout {
+      align-items: end;
+      justify-items: end;
+      padding: 1px;
+      font-size: .72em;
+    }
+
+    .feature {
+      top: 1px;
+      right: 1px;
+      font-size: .48em;
+    }
+
+    .improvement {
+      left: 1px;
+      bottom: 1px;
+      font-size: .53em;
+    }
+
+    .context {
+      min-height: 66px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-radius: 13px;
+      background: var(--paper);
+      color: var(--ink);
+      box-shadow: 0 5px 18px rgba(0,0,0,.18);
+    }
+
+    .context-copy {
+      min-width: 0;
+    }
+
+    .context-title {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.15;
+    }
+
+    .context-text {
+      margin: 4px 0 0;
+      color: #5f695f;
+      font-size: 11px;
+      line-height: 1.25;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .context-actions {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .context-btn {
+      min-width: 54px;
+      height: 43px;
+      padding: 0 9px;
+      border-radius: 10px;
+      background: var(--accent-2);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.08;
+      box-shadow: inset 0 1px rgba(255,255,255,.14);
+    }
+
+    .context-btn.alt {
+      background: #826b43;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1.35fr 48px;
+      gap: 7px;
+      min-height: 51px;
+    }
+
+    .tool-btn {
+      min-width: 0;
+      height: 51px;
+      display: grid;
+      place-items: center;
+      padding: 4px 7px;
+      border-radius: 12px;
+      background: var(--panel-2);
+      border: 1px solid rgba(255,255,255,.08);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.08;
+      box-shadow: inset 0 1px rgba(255,255,255,.08);
+    }
+
+    .tool-btn span {
+      display: block;
+      font-size: 19px;
+      line-height: 1;
+      margin-bottom: 2px;
+    }
+
+    .tool-btn.end-turn {
+      background: linear-gradient(#7eac69, #5f8d56);
+      color: #102014;
+      font-size: 14px;
+      box-shadow: inset 0 1px rgba(255,255,255,.26), 0 2px 8px rgba(0,0,0,.2);
+    }
+
+    .tool-btn.menu {
+      font-size: 25px;
+      line-height: 1;
+    }
+
+    .badge-wrap {
+      position: relative;
+    }
+
+    .badge {
+      position: absolute;
+      top: 3px;
+      right: 7px;
+      min-width: 17px;
+      height: 17px;
+      display: none;
+      place-items: center;
+      padding: 0 4px;
+      border-radius: 9px;
+      background: #c0604d;
+      color: white;
+      font-size: 10px;
+      font-weight: 800;
+      box-shadow: 0 1px 4px rgba(0,0,0,.3);
+    }
+
+    .badge.show { display: grid; }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      top: max(70px, calc(env(safe-area-inset-top) + 56px));
+      z-index: 80;
+      width: min(88vw, 420px);
+      padding: 10px 13px;
+      border-radius: 12px;
+      background: rgba(20,31,23,.94);
+      border: 1px solid rgba(255,255,255,.13);
+      color: white;
+      text-align: center;
+      font-size: 13px;
+      line-height: 1.3;
+      box-shadow: var(--shadow);
+      opacity: 0;
+      transform: translate(-50%, -10px);
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      padding: 12px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+      background: rgba(4,10,6,.72);
+      backdrop-filter: blur(5px);
+      -webkit-backdrop-filter: blur(5px);
+      touch-action: none;
+    }
+
+    .modal.show { display: flex; }
+
+    .sheet {
+      width: min(100%, 620px);
+      max-height: min(82dvh, 760px);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border-radius: 19px;
+      background: var(--paper);
+      color: var(--ink);
+      box-shadow: 0 22px 65px rgba(0,0,0,.5);
+      animation: sheetIn 150ms ease-out;
+    }
+
+    @keyframes sheetIn {
+      from { transform: translateY(18px); opacity: .5; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    .sheet-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 14px 15px 10px;
+      border-bottom: 1px solid rgba(40,50,41,.13);
+    }
+
+    .sheet-head h2 {
+      margin: 0;
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 27px;
+      line-height: 1;
+    }
+
+    .close-btn {
+      width: 39px;
+      height: 39px;
+      border-radius: 50%;
+      background: rgba(40,50,41,.1);
+      color: var(--ink);
+      font-size: 25px;
+      line-height: 1;
+    }
+
+    .sheet-scroll {
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      touch-action: pan-y;
+      -webkit-overflow-scrolling: touch;
+      padding: 13px 14px 18px;
+    }
+
+    .section-title {
+      margin: 15px 0 8px;
+      color: #6c6654;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .8px;
+    }
+
+    .section-title:first-child { margin-top: 0; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 7px;
+    }
+
+    .summary-card {
+      min-width: 0;
+      padding: 9px 7px;
+      border-radius: 11px;
+      background: rgba(65,80,63,.08);
+      text-align: center;
+    }
+
+    .summary-card strong {
+      display: block;
+      font-size: 18px;
+    }
+
+    .summary-card small {
+      display: block;
+      margin-top: 2px;
+      color: #667066;
+      font-size: 10px;
+    }
+
+    .progress {
+      height: 10px;
+      overflow: hidden;
+      border-radius: 5px;
+      background: rgba(40,50,41,.12);
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #6f9e5d, #a9bf69);
+      transition: width 180ms ease;
+    }
+
+    .progress-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 5px 1px 0;
+      color: #626d62;
+      font-size: 11px;
+    }
+
+    .card-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .game-card {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 11px;
+      border: 1px solid rgba(40,50,41,.12);
+      border-radius: 13px;
+      background: rgba(255,255,255,.38);
+    }
+
+    .game-card.done {
+      background: rgba(83,126,74,.12);
+    }
+
+    .game-card.locked {
+      opacity: .58;
+    }
+
+    .game-card h3 {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.15;
+    }
+
+    .game-card p {
+      margin: 4px 0 0;
+      color: #687168;
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
+    .card-button {
+      min-width: 82px;
+      min-height: 42px;
+      padding: 6px 10px;
+      border-radius: 10px;
+      background: var(--accent-2);
+      color: white;
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.1;
+    }
+
+    .card-button.gold { background: #8c7040; }
+    .card-button.danger { background: var(--danger); }
+    .card-button.neutral { background: #6f756e; }
+
+    .inline-note {
+      padding: 10px 11px;
+      border-radius: 12px;
+      background: rgba(65,80,63,.08);
+      color: #586358;
+      font-size: 12px;
+      line-height: 1.38;
+    }
+
+    .built-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .chip {
+      padding: 6px 8px;
+      border-radius: 9px;
+      background: rgba(65,80,63,.1);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .menu-actions {
+      display: grid;
+      gap: 8px;
+    }
+
+    .wide-btn {
+      min-height: 47px;
+      padding: 8px 12px;
+      border-radius: 12px;
+      background: var(--accent-2);
+      color: white;
+      font-weight: 800;
+    }
+
+    .wide-btn.secondary {
+      background: #75694f;
+    }
+
+    .wide-btn.danger {
+      background: var(--danger);
+    }
+
+    .victory-mark {
+      display: block;
+      margin: 2px auto 10px;
+      text-align: center;
+      font-size: 58px;
+    }
+
+    .victory-copy {
+      margin: 0 0 14px;
+      text-align: center;
+      color: #566156;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    @media (max-height: 700px) {
+      :root { --map-size: min(88vw, calc(100dvh - 298px), 430px); }
+      .app { gap: 5px; }
+      .topbar { min-height: 37px; }
+      .brand h1 { font-size: 27px; }
+      .brand p { display: none; }
+      .resource { height: 37px; padding-block: 3px; }
+      .context { min-height: 59px; padding-block: 6px; }
+      .toolbar, .tool-btn { min-height: 47px; height: 47px; }
+    }
+
+    @media (max-width: 370px) {
+      :root { --map-size: min(95vw, calc(100dvh - 302px)); }
+      .turn-card { min-width: 76px; padding-inline: 7px; }
+      .resource { padding-inline: 4px; gap: 3px; }
+      .resource .icon { font-size: 16px; }
+      .resource strong { font-size: 14px; }
+      .context { padding-inline: 8px; }
+      .context-btn { min-width: 49px; padding-inline: 7px; }
+      .toolbar { grid-template-columns: 1fr 1fr 1.3fr 44px; gap: 5px; }
+      .tool-btn { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <h1>Эпохи</h1>
+        <p id="subtitle">От племени к империи</p>
+      </div>
+      <div class="turn-card">
+        <small id="eraLabel">Племя</small>
+        <strong>Ход <span id="turnValue">1</span></strong>
+      </div>
+    </header>
+
+    <section class="resources" aria-label="Ресурсы">
+      <div class="resource"><span class="icon">🍞</span><div class="numbers"><strong id="foodValue">0</strong><small id="foodIncome">+0 за ход</small></div></div>
+      <div class="resource"><span class="icon">🔨</span><div class="numbers"><strong id="prodValue">0</strong><small id="prodIncome">+0 за ход</small></div></div>
+      <div class="resource"><span class="icon">🪙</span><div class="numbers"><strong id="goldValue">0</strong><small id="goldIncome">+0 за ход</small></div></div>
+      <div class="resource"><span class="icon">🔬</span><div class="numbers"><strong id="scienceValue">0</strong><small id="scienceIncome">+0 за ход</small></div></div>
+    </section>
+
+    <section class="map-zone">
+      <div class="map-shell">
+        <div id="map" class="map" aria-label="Карта мира"></div>
+      </div>
+    </section>
+
+    <section class="context" aria-live="polite">
+      <div class="context-copy">
+        <h2 id="contextTitle" class="context-title">Карта мира</h2>
+        <p id="contextText" class="context-text">Нажми на клетку. Разведчик может сходить на соседнюю сушу один раз за ход.</p>
+      </div>
+      <div id="contextActions" class="context-actions"></div>
+    </section>
+
+    <nav class="toolbar" aria-label="Управление">
+      <button id="cityBtn" class="tool-btn"><span>🏛️</span>Город</button>
+      <div class="badge-wrap">
+        <button id="scienceBtn" class="tool-btn" style="width:100%"><span>🔬</span>Наука</button>
+        <span id="scienceBadge" class="badge">!</span>
+      </div>
+      <button id="endTurnBtn" class="tool-btn end-turn"><span>☀️</span>Завершить ход</button>
+      <button id="menuBtn" class="tool-btn menu" aria-label="Меню">☰</button>
+    </nav>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <div id="cityModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="cityModalTitle">
+    <section class="sheet">
+      <header class="sheet-head">
+        <h2 id="cityModalTitle">Ардена</h2>
+        <button class="close-btn" data-close="cityModal" aria-label="Закрыть">×</button>
+      </header>
+      <div id="cityContent" class="sheet-scroll"></div>
+    </section>
+  </div>
+
+  <div id="scienceModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="scienceModalTitle">
+    <section class="sheet">
+      <header class="sheet-head">
+        <h2 id="scienceModalTitle">Исследования</h2>
+        <button class="close-btn" data-close="scienceModal" aria-label="Закрыть">×</button>
+      </header>
+      <div id="scienceContent" class="sheet-scroll"></div>
+    </section>
+  </div>
+
+  <div id="menuModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="menuModalTitle">
+    <section class="sheet">
+      <header class="sheet-head">
+        <h2 id="menuModalTitle">Меню</h2>
+        <button class="close-btn" data-close="menuModal" aria-label="Закрыть">×</button>
+      </header>
+      <div id="menuContent" class="sheet-scroll"></div>
+    </section>
+  </div>
+
+  <div id="victoryModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="victoryModalTitle">
+    <section class="sheet">
+      <header class="sheet-head">
+        <h2 id="victoryModalTitle">Империя основана!</h2>
+      </header>
+      <div id="victoryContent" class="sheet-scroll"></div>
+    </section>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  const MAP_SIZE = 12;
+  const SAVE_KEY = "mika-epohi-v1-state";
+  const TUTORIAL_KEY = "mika-epohi-v1-seen";
+
+  const TERRAIN = {
+    plains: { name: "Равнина", icon: "🌿", base: { food: 1, production: 0, gold: 0, science: 0 } },
+    forest: { name: "Лес", icon: "🌲", base: { food: 0, production: 1, gold: 0, science: 0 } },
+    hill: { name: "Холмы", icon: "⛰️", base: { food: 0, production: 1, gold: 0, science: 0 } },
+    water: { name: "Побережье", icon: "🌊", base: { food: 1, production: 0, gold: 1, science: 0 } },
+    desert: { name: "Пустошь", icon: "🏜️", base: { food: 0, production: 0, gold: 1, science: 0 } }
+  };
+
+  const FEATURES = {
+    wheat: { name: "Плодородная земля", icon: "🌾", bonus: { food: 1 } },
+    ore: { name: "Руда", icon: "🪨", bonus: { production: 1 } },
+    gems: { name: "Самоцветы", icon: "💎", bonus: { gold: 1 } },
+    fish: { name: "Рыба", icon: "🐟", bonus: { food: 1 } },
+    ruins: { name: "Древние руины", icon: "🏺", bonus: {} }
+  };
+
+  const IMPROVEMENTS = {
+    lumber: {
+      name: "Лесозаготовка", icon: "🪵", terrain: ["forest"], tech: null,
+      cost: { production: 10 }, yield: { production: 3 },
+      description: "+3 производства за ход"
+    },
+    farm: {
+      name: "Ферма", icon: "🌾", terrain: ["plains"], tech: "agriculture",
+      cost: { production: 11 }, yield: { food: 3 },
+      description: "+3 еды за ход"
+    },
+    mine: {
+      name: "Шахта", icon: "⛏️", terrain: ["hill"], tech: "mining",
+      cost: { production: 14 }, yield: { production: 3, gold: 1 },
+      description: "+3 производства и +1 золото"
+    },
+    tradingpost: {
+      name: "Торговый пост", icon: "⚖️", terrain: ["plains", "desert"], tech: "trade",
+      cost: { production: 8, gold: 12 }, yield: { gold: 3 },
+      description: "+3 золота за ход"
+    },
+    harbor: {
+      name: "Гавань", icon: "⚓", terrain: ["water"], tech: "trade",
+      cost: { production: 17, gold: 8 }, yield: { food: 2, gold: 2 },
+      description: "+2 еды и +2 золота"
+    }
+  };
+
+  const BUILDINGS = {
+    monument: {
+      name: "Монумент", icon: "🗿", tech: null, cost: { production: 18 },
+      yield: { science: 1 }, description: "+1 наука за ход"
+    },
+    granary: {
+      name: "Амбар", icon: "🏚️", tech: "agriculture", cost: { production: 24 },
+      yield: { food: 2 }, description: "+2 еды за ход"
+    },
+    workshop: {
+      name: "Мастерская", icon: "⚒️", tech: "mining", cost: { production: 30 },
+      yield: { production: 2 }, description: "+2 производства за ход"
+    },
+    library: {
+      name: "Библиотека", icon: "📚", tech: "writing", cost: { production: 32, gold: 6 },
+      yield: { science: 2 }, description: "+2 науки за ход"
+    },
+    market: {
+      name: "Рынок", icon: "🏪", tech: "trade", cost: { production: 36 },
+      yield: { gold: 2 }, description: "+2 золота за ход"
+    },
+    aqueduct: {
+      name: "Акведук", icon: "🌉", tech: "engineering", cost: { production: 44, gold: 10 },
+      yield: { food: 2, production: 1 }, description: "+2 еды и +1 производство"
+    },
+    palace: {
+      name: "Дворец", icon: "🏰", tech: "statehood", cost: { production: 80, gold: 30 },
+      yield: { gold: 3, science: 2 }, description: "При населении 6 основывает империю"
+    }
+  };
+
+  const TECHS = {
+    agriculture: {
+      name: "Земледелие", icon: "🌾", cost: 12, prereq: [],
+      unlock: "Фермы и амбар"
+    },
+    mining: {
+      name: "Горное дело", icon: "⛏️", cost: 16, prereq: [],
+      unlock: "Шахты и мастерская"
+    },
+    writing: {
+      name: "Письменность", icon: "✍️", cost: 22, prereq: ["agriculture"],
+      unlock: "Библиотека"
+    },
+    trade: {
+      name: "Торговля", icon: "⚖️", cost: 28, prereq: ["writing"],
+      unlock: "Торговые посты, гавани и рынок"
+    },
+    engineering: {
+      name: "Инженерия", icon: "📐", cost: 32, prereq: ["mining"],
+      unlock: "Акведук"
+    },
+    statehood: {
+      name: "Государственность", icon: "👑", cost: 46, prereq: ["trade", "engineering"],
+      unlock: "Дворец и основание империи"
+    }
+  };
+
+  const mapEl = document.getElementById("map");
+  const turnValue = document.getElementById("turnValue");
+  const eraLabel = document.getElementById("eraLabel");
+  const subtitle = document.getElementById("subtitle");
+  const foodValue = document.getElementById("foodValue");
+  const prodValue = document.getElementById("prodValue");
+  const goldValue = document.getElementById("goldValue");
+  const scienceValue = document.getElementById("scienceValue");
+  const foodIncome = document.getElementById("foodIncome");
+  const prodIncome = document.getElementById("prodIncome");
+  const goldIncome = document.getElementById("goldIncome");
+  const scienceIncome = document.getElementById("scienceIncome");
+  const contextTitle = document.getElementById("contextTitle");
+  const contextText = document.getElementById("contextText");
+  const contextActions = document.getElementById("contextActions");
+  const cityBtn = document.getElementById("cityBtn");
+  const scienceBtn = document.getElementById("scienceBtn");
+  const endTurnBtn = document.getElementById("endTurnBtn");
+  const menuBtn = document.getElementById("menuBtn");
+  const scienceBadge = document.getElementById("scienceBadge");
+  const toastEl = document.getElementById("toast");
+  const cityContent = document.getElementById("cityContent");
+  const scienceContent = document.getElementById("scienceContent");
+  const menuContent = document.getElementById("menuContent");
+  const victoryContent = document.getElementById("victoryContent");
+
+  let state = loadGame() || createNewGame();
+  let selected = null;
+  let toastTimer = null;
+
+  function emptyYield() {
+    return { food: 0, production: 0, gold: 0, science: 0 };
+  }
+
+  function addYield(target, source, multiplier) {
+    const mult = multiplier == null ? 1 : multiplier;
+    ["food", "production", "gold", "science"].forEach(function (key) {
+      target[key] += (source && source[key] ? source[key] : 0) * mult;
+    });
+    return target;
+  }
+
+  function randomChoice(array) {
+    return array[Math.floor(Math.random() * array.length)];
+  }
+
+  function createTile(terrain) {
+    return { terrain: terrain, revealed: false, improvement: null, feature: null };
+  }
+
+  function generateMap() {
+    const grid = [];
+    for (let y = 0; y < MAP_SIZE; y++) {
+      const row = [];
+      for (let x = 0; x < MAP_SIZE; x++) {
+        const edge = x === 0 || y === 0 || x === MAP_SIZE - 1 || y === MAP_SIZE - 1;
+        const r = Math.random();
+        let terrain;
+        if (edge && r < .42) terrain = "water";
+        else if (r < .18) terrain = "water";
+        else if (r < .44) terrain = "plains";
+        else if (r < .67) terrain = "forest";
+        else if (r < .86) terrain = "hill";
+        else terrain = "desert";
+        row.push(createTile(terrain));
+      }
+      grid.push(row);
+    }
+
+    // Make the starting basin varied and always playable.
+    const cx = 6;
+    const cy = 6;
+    const fixed = [
+      [0, 0, "plains"], [-1, 0, "forest"], [1, 0, "hill"], [0, -1, "plains"],
+      [0, 1, "plains"], [-1, -1, "water"], [1, -1, "forest"], [-1, 1, "hill"], [1, 1, "desert"]
+    ];
+    fixed.forEach(function (item) {
+      grid[cy + item[1]][cx + item[0]] = createTile(item[2]);
+    });
+    grid[cy][cx - 1].feature = "ore";
+    grid[cy][cx + 1].feature = "ore";
+    grid[cy - 1][cx].feature = "wheat";
+    grid[cy - 1][cx - 1].feature = "fish";
+
+    for (let y = 0; y < MAP_SIZE; y++) {
+      for (let x = 0; x < MAP_SIZE; x++) {
+        if (Math.abs(x - cx) <= 1 && Math.abs(y - cy) <= 1) continue;
+        const tile = grid[y][x];
+        const r = Math.random();
+        if (tile.terrain === "water" && r < .16) tile.feature = "fish";
+        else if (tile.terrain === "plains" && r < .12) tile.feature = "wheat";
+        else if (tile.terrain === "hill" && r < .15) tile.feature = "ore";
+        else if ((tile.terrain === "desert" || tile.terrain === "hill") && r < .05) tile.feature = "gems";
+        else if (tile.terrain !== "water" && r > .965) tile.feature = "ruins";
+      }
+    }
+    return grid;
+  }
+
+  function createNewGame() {
+    const newState = {
+      version: 1,
+      turn: 1,
+      map: generateMap(),
+      city: { x: 6, y: 6, name: "Ардена", population: 1, buildings: [] },
+      scout: { x: 6, y: 5, moved: false },
+      resources: { food: 6, production: 14, gold: 8, science: 4 },
+      researched: [],
+      currentResearch: "agriculture",
+      victory: false,
+      history: [],
+      eventCounter: 0
+    };
+    revealAround(newState, newState.city.x, newState.city.y, 2);
+    revealAround(newState, newState.scout.x, newState.scout.y, 1);
+    return newState;
+  }
+
+  function validState(candidate) {
+    return candidate && candidate.version === 1 && Array.isArray(candidate.map) && candidate.map.length === MAP_SIZE &&
+      candidate.city && candidate.scout && candidate.resources && Array.isArray(candidate.researched);
+  }
+
+  function safeGet(key) {
+    try { return localStorage.getItem(key); } catch (error) { return null; }
+  }
+
+  function safeSet(key, value) {
+    try { localStorage.setItem(key, value); return true; } catch (error) { return false; }
+  }
+
+  function loadGame() {
+    const raw = safeGet(SAVE_KEY);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return validState(parsed) ? parsed : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function saveGame() {
+    safeSet(SAVE_KEY, JSON.stringify(state));
+  }
+
+  function revealAround(targetState, x, y, radius) {
+    for (let yy = Math.max(0, y - radius); yy <= Math.min(MAP_SIZE - 1, y + radius); yy++) {
+      for (let xx = Math.max(0, x - radius); xx <= Math.min(MAP_SIZE - 1, x + radius); xx++) {
+        targetState.map[yy][xx].revealed = true;
+      }
+    }
+  }
+
+  function territoryRadius() {
+    if (state.city.population >= 6) return 3;
+    if (state.city.population >= 3) return 2;
+    return 1;
+  }
+
+  function inTerritory(x, y) {
+    return Math.max(Math.abs(x - state.city.x), Math.abs(y - state.city.y)) <= territoryRadius();
+  }
+
+  function isAdjacent(x1, y1, x2, y2) {
+    const dx = Math.abs(x1 - x2);
+    const dy = Math.abs(y1 - y2);
+    return dx <= 1 && dy <= 1 && (dx + dy > 0);
+  }
+
+  function hasTech(id) {
+    return state.researched.indexOf(id) !== -1;
+  }
+
+  function hasBuilding(id) {
+    return state.city.buildings.indexOf(id) !== -1;
+  }
+
+  function canAfford(cost) {
+    return Object.keys(cost || {}).every(function (key) {
+      return (state.resources[key] || 0) >= cost[key];
+    });
+  }
+
+  function pay(cost) {
+    Object.keys(cost || {}).forEach(function (key) {
+      state.resources[key] -= cost[key];
+    });
+  }
+
+  function formatCost(cost) {
+    const parts = [];
+    if (cost.production) parts.push("🔨 " + cost.production);
+    if (cost.gold) parts.push("🪙 " + cost.gold);
+    if (cost.food) parts.push("🍞 " + cost.food);
+    if (cost.science) parts.push("🔬 " + cost.science);
+    return parts.join(" · ");
+  }
+
+  function calculateIncome() {
+    const income = { food: 2 + Math.floor(state.city.population / 2), production: 2, gold: 1, science: 2 };
+
+    // The city works its own tile.
+    addYield(income, TERRAIN[state.map[state.city.y][state.city.x].terrain].base);
+
+    state.map.forEach(function (row) {
+      row.forEach(function (tile) {
+        if (!tile.improvement) return;
+        addYield(income, IMPROVEMENTS[tile.improvement].yield);
+        if (tile.feature && tile.feature !== "ruins") addYield(income, FEATURES[tile.feature].bonus);
+      });
+    });
+
+    state.city.buildings.forEach(function (id) {
+      addYield(income, BUILDINGS[id].yield);
+    });
+    return income;
+  }
+
+  function growthNeed(population) {
+    return 12 + population * 7;
+  }
+
+  function currentEra() {
+    if (state.victory) return "Империя";
+    if (hasTech("statehood")) return "Королевство";
+    if (state.researched.length >= 3 || state.city.population >= 4) return "Город";
+    if (state.researched.length >= 1 || state.city.population >= 2) return "Поселение";
+    return "Племя";
+  }
+
+  function getTileYield(tile) {
+    const result = emptyYield();
+    addYield(result, TERRAIN[tile.terrain].base);
+    if (tile.improvement) addYield(result, IMPROVEMENTS[tile.improvement].yield);
+    if (tile.feature && tile.feature !== "ruins" && tile.improvement) addYield(result, FEATURES[tile.feature].bonus);
+    return result;
+  }
+
+  function yieldText(yieldObj) {
+    const parts = [];
+    if (yieldObj.food) parts.push("🍞" + yieldObj.food);
+    if (yieldObj.production) parts.push("🔨" + yieldObj.production);
+    if (yieldObj.gold) parts.push("🪙" + yieldObj.gold);
+    if (yieldObj.science) parts.push("🔬" + yieldObj.science);
+    return parts.length ? parts.join(" ") : "нет дохода";
+  }
+
+  function render() {
+    renderMap();
+    renderTop();
+    renderContext();
+    renderBadges();
+    saveGame();
+  }
+
+  function renderMap() {
+    const fragment = document.createDocumentFragment();
+    mapEl.innerHTML = "";
+
+    for (let y = 0; y < MAP_SIZE; y++) {
+      for (let x = 0; x < MAP_SIZE; x++) {
+        const tile = state.map[y][x];
+        const button = document.createElement("button");
+        button.className = "tile";
+        button.dataset.x = String(x);
+        button.dataset.y = String(y);
+        button.setAttribute("aria-label", tile.revealed ? TERRAIN[tile.terrain].name : "Неизведанная земля");
+
+        if (!tile.revealed) {
+          button.classList.add("fog");
+          button.innerHTML = '<span class="terrain-icon">?</span>';
+        } else {
+          button.classList.add(tile.terrain);
+          button.innerHTML = '<span class="terrain-icon">' + TERRAIN[tile.terrain].icon + '</span>';
+
+          if (tile.feature) {
+            const feature = document.createElement("span");
+            feature.className = "feature";
+            feature.textContent = FEATURES[tile.feature].icon;
+            button.appendChild(feature);
+          }
+          if (tile.improvement) {
+            const improvement = document.createElement("span");
+            improvement.className = "improvement";
+            improvement.textContent = IMPROVEMENTS[tile.improvement].icon;
+            button.appendChild(improvement);
+          }
+        }
+
+        if (state.city.x === x && state.city.y === y) {
+          const city = document.createElement("span");
+          city.className = "piece city";
+          city.textContent = "🏛️";
+          button.appendChild(city);
+        }
+        if (state.scout.x === x && state.scout.y === y) {
+          const scout = document.createElement("span");
+          scout.className = "piece scout";
+          scout.textContent = state.scout.moved ? "🧍" : "🧭";
+          button.appendChild(scout);
+        }
+        if (selected && selected.x === x && selected.y === y) button.classList.add("selected");
+        fragment.appendChild(button);
+      }
+    }
+    mapEl.appendChild(fragment);
+  }
+
+  function renderTop() {
+    const income = calculateIncome();
+    turnValue.textContent = String(state.turn);
+    eraLabel.textContent = currentEra();
+    subtitle.textContent = state.city.name + " · население " + state.city.population;
+    foodValue.textContent = String(Math.floor(state.resources.food));
+    prodValue.textContent = String(Math.floor(state.resources.production));
+    goldValue.textContent = String(Math.floor(state.resources.gold));
+    scienceValue.textContent = String(Math.floor(state.resources.science));
+    foodIncome.textContent = "+" + income.food + " за ход";
+    prodIncome.textContent = "+" + income.production + " за ход";
+    goldIncome.textContent = "+" + income.gold + " за ход";
+    scienceIncome.textContent = "+" + income.science + " за ход";
+  }
+
+  function actionButton(label, className, handler, disabled) {
+    const button = document.createElement("button");
+    button.className = "context-btn" + (className ? " " + className : "");
+    button.innerHTML = label;
+    button.disabled = !!disabled;
+    button.addEventListener("click", handler);
+    return button;
+  }
+
+  function availableImprovement(tile) {
+    return Object.keys(IMPROVEMENTS).find(function (id) {
+      const def = IMPROVEMENTS[id];
+      return def.terrain.indexOf(tile.terrain) !== -1 && (!def.tech || hasTech(def.tech));
+    }) || null;
+  }
+
+  function renderContext() {
+    contextActions.innerHTML = "";
+    if (!selected) {
+      contextTitle.textContent = "Карта мира";
+      contextText.textContent = state.scout.moved
+        ? "Разведчик уже ходил. Улучшай земли или заверши ход."
+        : "Нажми на клетку. Разведчик может сходить на соседнюю сушу один раз за ход.";
+      return;
+    }
+
+    const x = selected.x;
+    const y = selected.y;
+    const tile = state.map[y][x];
+
+    if (!tile.revealed) {
+      contextTitle.textContent = "Неизведанная земля";
+      contextText.textContent = "Отправь разведчика на соседнюю клетку, чтобы открыть её и окрестности.";
+    } else {
+      const extras = [];
+      if (tile.feature) extras.push(FEATURES[tile.feature].name);
+      if (tile.improvement) extras.push(IMPROVEMENTS[tile.improvement].name);
+      contextTitle.textContent = TERRAIN[tile.terrain].icon + " " + TERRAIN[tile.terrain].name;
+      contextText.textContent = "Доход: " + yieldText(getTileYield(tile)) + (extras.length ? " · " + extras.join(" · ") : "");
+    }
+
+    if (state.city.x === x && state.city.y === y) {
+      contextTitle.textContent = "🏛️ " + state.city.name;
+      contextText.textContent = "Население " + state.city.population + " · территория " + territoryRadius() + " клетки";
+      contextActions.appendChild(actionButton("Открыть<br>город", "", function () { openCity(); }, false));
+      return;
+    }
+
+    const canMove = !state.scout.moved && isAdjacent(state.scout.x, state.scout.y, x, y) && tile.terrain !== "water";
+    if (canMove) {
+      contextActions.appendChild(actionButton("Идти<br>🧭", "", function () { moveScout(x, y); }, false));
+    }
+
+    if (tile.revealed && inTerritory(x, y) && !tile.improvement) {
+      const improvementId = availableImprovement(tile);
+      if (improvementId) {
+        const def = IMPROVEMENTS[improvementId];
+        contextActions.appendChild(actionButton(def.icon + "<br>" + formatCost(def.cost), "alt", function () {
+          buildImprovement(x, y, improvementId);
+        }, !canAfford(def.cost)));
+      }
+    }
+  }
+
+  function renderBadges() {
+    const available = Object.keys(TECHS).some(function (id) {
+      return !hasTech(id) && id !== state.currentResearch && techUnlocked(id);
+    });
+    scienceBadge.classList.toggle("show", !state.currentResearch && available);
+  }
+
+  function moveScout(x, y) {
+    const tile = state.map[y][x];
+    if (state.scout.moved || !isAdjacent(state.scout.x, state.scout.y, x, y) || tile.terrain === "water") return;
+    state.scout.x = x;
+    state.scout.y = y;
+    state.scout.moved = true;
+    tile.revealed = true;
+    revealAround(state, x, y, 1);
+
+    if (tile.feature === "ruins") {
+      exploreRuins(tile);
+    } else {
+      showToast("Разведчик открыл новые земли.");
+    }
+    selected = { x: x, y: y };
+    render();
+  }
+
+  function exploreRuins(tile) {
+    const outcomes = [
+      { key: "science", amount: 8, text: "В руинах найдены древние записи: +8 🔬" },
+      { key: "gold", amount: 10, text: "В руинах найден клад: +10 🪙" },
+      { key: "production", amount: 8, text: "Найдены старые инструменты: +8 🔨" },
+      { key: "food", amount: 10, text: "Найдены запасы зерна: +10 🍞" }
+    ];
+    const outcome = randomChoice(outcomes);
+    state.resources[outcome.key] += outcome.amount;
+    tile.feature = null;
+    state.history.unshift("Ход " + state.turn + ": исследованы древние руины.");
+    showToast(outcome.text);
+  }
+
+  function buildImprovement(x, y, id) {
+    const tile = state.map[y][x];
+    const def = IMPROVEMENTS[id];
+    if (!tile.revealed || tile.improvement || !inTerritory(x, y) || !canAfford(def.cost)) return;
+    pay(def.cost);
+    tile.improvement = id;
+    state.history.unshift("Ход " + state.turn + ": построено улучшение «" + def.name + "».");
+    showToast(def.icon + " " + def.name + " построена. " + def.description + ".");
+    render();
+  }
+
+  function techUnlocked(id) {
+    return TECHS[id].prereq.every(hasTech);
+  }
+
+  function chooseResearch(id) {
+    if (hasTech(id) || !techUnlocked(id)) return;
+    state.currentResearch = id;
+    showToast("Исследование: " + TECHS[id].name + ".");
+    render();
+    openScience();
+  }
+
+  function buildBuilding(id) {
+    const def = BUILDINGS[id];
+    if (hasBuilding(id) || (def.tech && !hasTech(def.tech)) || !canAfford(def.cost)) return;
+    if (id === "palace" && state.city.population < 6) {
+      showToast("Для дворца нужно население 6.");
+      return;
+    }
+    pay(def.cost);
+    state.city.buildings.push(id);
+    state.history.unshift("Ход " + state.turn + ": построено здание «" + def.name + "».");
+    showToast(def.icon + " " + def.name + " построен.");
+
+    if (id === "palace") {
+      state.victory = true;
+      render();
+      closeModal("cityModal");
+      openVictory();
+      return;
+    }
+    render();
+    openCity();
+  }
+
+  function finishResearch() {
+    if (!state.currentResearch) return null;
+    const tech = TECHS[state.currentResearch];
+    if (state.resources.science < tech.cost) return null;
+    state.resources.science -= tech.cost;
+    const completed = state.currentResearch;
+    state.researched.push(completed);
+    state.currentResearch = null;
+    state.history.unshift("Ход " + state.turn + ": исследована технология «" + tech.name + "».");
+    return tech;
+  }
+
+  function applyGrowth() {
+    let grew = false;
+    while (state.city.population < 10 && state.resources.food >= growthNeed(state.city.population)) {
+      state.resources.food -= growthNeed(state.city.population);
+      state.city.population += 1;
+      revealAround(state, state.city.x, state.city.y, territoryRadius());
+      state.history.unshift("Ход " + state.turn + ": население выросло до " + state.city.population + ".");
+      grew = true;
+    }
+    return grew;
+  }
+
+  function randomEvent() {
+    if (state.turn < 5 || state.turn % 5 !== 0 || Math.random() > .62) return null;
+    const events = [
+      { key: "food", amount: 7, text: "Богатый урожай принёс +7 🍞" },
+      { key: "production", amount: 6, text: "Умелые мастера дали +6 🔨" },
+      { key: "gold", amount: 8, text: "Караван торговцев оставил +8 🪙" },
+      { key: "science", amount: 6, text: "Мудрец поделился знаниями: +6 🔬" },
+      { key: "food", amount: -5, text: "Засуха уничтожила 5 🍞" }
+    ];
+    const event = randomChoice(events);
+    state.resources[event.key] = Math.max(0, state.resources[event.key] + event.amount);
+    state.history.unshift("Ход " + state.turn + ": " + event.text.replace(/[🍞🔨🪙🔬]/g, "").trim() + ".");
+    return event.text;
+  }
+
+  function endTurn() {
+    if (state.victory) {
+      openVictory();
+      return;
+    }
+    endTurnBtn.disabled = true;
+    const income = calculateIncome();
+    addYield(state.resources, income);
+    const grew = applyGrowth();
+    const completedTech = finishResearch();
+    const eventText = randomEvent();
+    state.turn += 1;
+    state.scout.moved = false;
+    selected = null;
+
+    let message = "Получено: 🍞" + income.food + " · 🔨" + income.production + " · 🪙" + income.gold + " · 🔬" + income.science;
+    if (grew) message = "Население выросло до " + state.city.population + "! " + message;
+    if (completedTech) message = completedTech.icon + " Изучено: " + completedTech.name + ". " + message;
+    if (eventText) message = eventText + ". " + message;
+    showToast(message, 3000);
+    render();
+    endTurnBtn.disabled = false;
+  }
+
+  function openModal(id) {
+    document.getElementById(id).classList.add("show");
+  }
+
+  function closeModal(id) {
+    document.getElementById(id).classList.remove("show");
+  }
+
+  function openCity() {
+    const income = calculateIncome();
+    const need = growthNeed(state.city.population);
+    const progress = Math.min(100, state.resources.food / need * 100);
+    const built = state.city.buildings.length
+      ? state.city.buildings.map(function (id) { return '<span class="chip">' + BUILDINGS[id].icon + ' ' + BUILDINGS[id].name + '</span>'; }).join("")
+      : '<span class="chip">Пока нет зданий</span>';
+
+    let cards = "";
+    Object.keys(BUILDINGS).forEach(function (id) {
+      const def = BUILDINGS[id];
+      const done = hasBuilding(id);
+      const locked = def.tech && !hasTech(def.tech);
+      const populationLocked = id === "palace" && state.city.population < 6;
+      let button;
+      if (done) button = '<button class="card-button neutral" disabled>Построено</button>';
+      else if (locked) button = '<button class="card-button neutral" disabled>Нужно: ' + TECHS[def.tech].name + '</button>';
+      else if (populationLocked) button = '<button class="card-button neutral" disabled>Население 6</button>';
+      else button = '<button class="card-button ' + (canAfford(def.cost) ? '' : 'neutral') + '" data-build="' + id + '" ' + (canAfford(def.cost) ? '' : 'disabled') + '>' + formatCost(def.cost) + '</button>';
+
+      cards += '<article class="game-card ' + (done ? 'done' : '') + ' ' + (locked ? 'locked' : '') + '">' +
+        '<div><h3>' + def.icon + ' ' + def.name + '</h3><p>' + def.description + '</p></div>' + button + '</article>';
+    });
+
+    cityContent.innerHTML =
+      '<div class="section-title">Город</div>' +
+      '<div class="summary-grid">' +
+        '<div class="summary-card"><strong>' + state.city.population + '</strong><small>население</small></div>' +
+        '<div class="summary-card"><strong>' + currentEra() + '</strong><small>эпоха</small></div>' +
+        '<div class="summary-card"><strong>' + territoryRadius() + '</strong><small>радиус земель</small></div>' +
+      '</div>' +
+      '<div class="section-title">Рост населения</div>' +
+      '<div class="progress"><span style="width:' + progress + '%"></span></div>' +
+      '<div class="progress-label"><span>🍞 ' + Math.floor(state.resources.food) + ' / ' + need + '</span><span>+' + income.food + ' за ход</span></div>' +
+      '<div class="section-title">Построено</div><div class="built-list">' + built + '</div>' +
+      '<div class="section-title">Доступные здания</div><div class="card-list">' + cards + '</div>';
+
+    Array.from(cityContent.querySelectorAll("[data-build]")).forEach(function (button) {
+      button.addEventListener("click", function () { buildBuilding(button.dataset.build); });
+    });
+    openModal("cityModal");
+  }
+
+  function openScience() {
+    let current = '<div class="inline-note">Выбери следующую технологию. Наука копится и не пропадает.</div>';
+    if (state.currentResearch) {
+      const tech = TECHS[state.currentResearch];
+      const progress = Math.min(100, state.resources.science / tech.cost * 100);
+      current = '<article class="game-card done"><div><h3>' + tech.icon + ' ' + tech.name + '</h3><p>Откроет: ' + tech.unlock + '</p></div><strong>🔬 ' + Math.floor(state.resources.science) + ' / ' + tech.cost + '</strong></article>' +
+        '<div class="progress" style="margin-top:8px"><span style="width:' + progress + '%"></span></div>';
+    }
+
+    let cards = "";
+    Object.keys(TECHS).forEach(function (id) {
+      const tech = TECHS[id];
+      const done = hasTech(id);
+      const currentOne = state.currentResearch === id;
+      const unlocked = techUnlocked(id);
+      const prereqText = tech.prereq.length ? "Требуется: " + tech.prereq.map(function (p) { return TECHS[p].name; }).join(", ") : "Доступно сразу";
+      let button;
+      if (done) button = '<button class="card-button neutral" disabled>Изучено</button>';
+      else if (currentOne) button = '<button class="card-button gold" disabled>Изучается</button>';
+      else if (!unlocked) button = '<button class="card-button neutral" disabled>Закрыто</button>';
+      else button = '<button class="card-button" data-research="' + id + '">🔬 ' + tech.cost + '</button>';
+      cards += '<article class="game-card ' + (done ? 'done' : '') + ' ' + (!unlocked ? 'locked' : '') + '">' +
+        '<div><h3>' + tech.icon + ' ' + tech.name + '</h3><p>' + tech.unlock + ' · ' + prereqText + '</p></div>' + button + '</article>';
+    });
+
+    scienceContent.innerHTML = '<div class="section-title">Текущее исследование</div>' + current +
+      '<div class="section-title">Дерево технологий</div><div class="card-list">' + cards + '</div>';
+
+    Array.from(scienceContent.querySelectorAll("[data-research]")).forEach(function (button) {
+      button.addEventListener("click", function () { chooseResearch(button.dataset.research); });
+    });
+    openModal("scienceModal");
+  }
+
+  function openMenu() {
+    const saved = safeGet(SAVE_KEY) ? "Игра автоматически сохранена на этом устройстве." : "Сохранение пока недоступно в этом режиме.";
+    const history = state.history.length
+      ? state.history.slice(0, 7).map(function (item) { return '<div class="chip" style="width:100%">' + item + '</div>'; }).join("")
+      : '<div class="inline-note">Летопись пока пуста.</div>';
+
+    menuContent.innerHTML =
+      '<div class="section-title">Как играть</div>' +
+      '<div class="inline-note">' +
+        '<strong>1.</strong> Нажми соседнюю клетку и отправь туда разведчика.<br>' +
+        '<strong>2.</strong> Строй фермы, шахты и другие улучшения внутри территории города.<br>' +
+        '<strong>3.</strong> Завершай ходы, копи ресурсы, исследуй технологии и возводи здания.<br>' +
+        '<strong>Цель:</strong> изучить государственность, вырастить население до 6 и построить дворец.' +
+      '</div>' +
+      '<div class="section-title">Сохранение</div><div class="inline-note">' + saved + '</div>' +
+      '<div class="section-title">Последние события</div><div class="built-list">' + history + '</div>' +
+      '<div class="section-title">Игра</div>' +
+      '<div class="menu-actions">' +
+        '<button id="closeMenuWide" class="wide-btn">Продолжить</button>' +
+        '<button id="newGameBtn" class="wide-btn danger">Начать новый мир</button>' +
+      '</div>';
+
+    document.getElementById("closeMenuWide").addEventListener("click", function () { closeModal("menuModal"); });
+    document.getElementById("newGameBtn").addEventListener("click", newGameWithConfirmation);
+    openModal("menuModal");
+  }
+
+  function openVictory() {
+    const improvementsCount = state.map.reduce(function (sum, row) {
+      return sum + row.filter(function (tile) { return !!tile.improvement; }).length;
+    }, 0);
+    victoryContent.innerHTML =
+      '<span class="victory-mark">👑</span>' +
+      '<p class="victory-copy">Из маленького племени выросло государство. Ардена стала столицей новой империи.</p>' +
+      '<div class="summary-grid">' +
+        '<div class="summary-card"><strong>' + state.turn + '</strong><small>ходов</small></div>' +
+        '<div class="summary-card"><strong>' + state.city.population + '</strong><small>население</small></div>' +
+        '<div class="summary-card"><strong>' + improvementsCount + '</strong><small>улучшений</small></div>' +
+      '</div>' +
+      '<div class="section-title">Что дальше</div>' +
+      '<div class="inline-note">Можно продолжить развивать карту или начать новый мир. Следующей версией добавим соперника, воинов и второй город.</div>' +
+      '<div class="menu-actions" style="margin-top:12px">' +
+        '<button id="continueAfterVictory" class="wide-btn">Продолжить эту империю</button>' +
+        '<button id="newAfterVictory" class="wide-btn secondary">Начать новый мир</button>' +
+      '</div>';
+    document.getElementById("continueAfterVictory").addEventListener("click", function () { closeModal("victoryModal"); });
+    document.getElementById("newAfterVictory").addEventListener("click", function () {
+      closeModal("victoryModal");
+      newGameWithConfirmation(true);
+    });
+    openModal("victoryModal");
+  }
+
+  function newGameWithConfirmation(skipConfirm) {
+    if (!skipConfirm && !window.confirm("Удалить текущее сохранение и создать новый мир?")) return;
+    state = createNewGame();
+    selected = null;
+    closeModal("menuModal");
+    closeModal("victoryModal");
+    showToast("Новый мир создан. Земледелие уже исследуется.");
+    render();
+  }
+
+  function showToast(text, duration) {
+    clearTimeout(toastTimer);
+    toastEl.textContent = text;
+    toastEl.classList.add("show");
+    toastTimer = setTimeout(function () {
+      toastEl.classList.remove("show");
+    }, duration || 2200);
+  }
+
+  mapEl.addEventListener("click", function (event) {
+    const tileEl = event.target.closest(".tile");
+    if (!tileEl) return;
+    selected = { x: Number(tileEl.dataset.x), y: Number(tileEl.dataset.y) };
+    renderMap();
+    renderContext();
+  });
+
+  cityBtn.addEventListener("click", openCity);
+  scienceBtn.addEventListener("click", openScience);
+  menuBtn.addEventListener("click", openMenu);
+  endTurnBtn.addEventListener("click", endTurn);
+
+  document.addEventListener("click", function (event) {
+    const close = event.target.closest("[data-close]");
+    if (close) closeModal(close.dataset.close);
+    if (event.target.classList && event.target.classList.contains("modal") && event.target.id !== "victoryModal") {
+      closeModal(event.target.id);
+    }
+  });
+
+  document.addEventListener("touchmove", function (event) {
+    if (!event.target.closest(".sheet-scroll")) event.preventDefault();
+  }, { passive: false });
+
+  document.addEventListener("gesturestart", function (event) { event.preventDefault(); }, { passive: false });
+  window.addEventListener("contextmenu", function (event) { event.preventDefault(); });
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) saveGame();
+  });
+  window.addEventListener("pagehide", saveGame);
+
+  render();
+
+  if (!safeGet(TUTORIAL_KEY)) {
+    safeSet(TUTORIAL_KEY, "1");
+    setTimeout(function () {
+      openMenu();
+      showToast("Добро пожаловать в «Эпохи»!");
+    }, 250);
+  } else if (state.victory) {
+    setTimeout(openVictory, 250);
+  }
+
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("./sw.js").catch(function () {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
