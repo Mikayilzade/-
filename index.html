@@ -10,7 +10,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-  <title>Эпохи — пошаговая стратегия</title>
+  <title>Эпохи v1.2 — пошаговая стратегия</title>
   <style>
     :root {
       --bg: #18231c;
@@ -790,6 +790,83 @@
       .toolbar { grid-template-columns: 1fr 1fr 1.3fr 44px; gap: 5px; }
       .tool-btn { font-size: 11px; }
     }
+
+
+    .piece.unit {
+      align-items: end;
+      justify-items: end;
+      padding: 1px;
+      font-size: .72em;
+    }
+
+    .piece.outpost {
+      align-items: start;
+      justify-items: start;
+      padding: 1px;
+      font-size: .72em;
+    }
+
+    .unit-count {
+      position: absolute;
+      z-index: 7;
+      right: 0;
+      top: 0;
+      min-width: 12px;
+      height: 12px;
+      display: grid;
+      place-items: center;
+      padding: 0 2px;
+      border-radius: 7px;
+      background: #26382c;
+      color: #fff;
+      font-size: 7px;
+      font-weight: 900;
+      pointer-events: none;
+    }
+
+    .tile.unit-active {
+      box-shadow: inset 0 0 0 2px #8fe0ff, 0 0 0 1px #26382c;
+      filter: brightness(1.12);
+    }
+
+    .queue-box {
+      padding: 11px;
+      border-radius: 13px;
+      background: rgba(82,127,80,.12);
+      border: 1px solid rgba(40,50,41,.12);
+    }
+
+    .queue-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .queue-head strong { font-size: 14px; }
+    .queue-head span { color: #687168; font-size: 11px; }
+
+    .queue-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin-top: 9px;
+    }
+
+    .tiny-btn {
+      min-height: 39px;
+      padding: 6px 8px;
+      border-radius: 10px;
+      background: var(--accent-2);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .tiny-btn.secondary { background: #75694f; }
+    .tiny-btn.danger { background: var(--danger); }
+
   </style>
 </head>
 <body>
@@ -797,7 +874,7 @@
     <header class="topbar">
       <div class="brand">
         <h1>Эпохи</h1>
-        <p id="subtitle">От племени к империи</p>
+        <p id="subtitle">От племени к империи · v1.2</p>
       </div>
       <div class="turn-card">
         <small id="eraLabel">Племя</small>
@@ -895,6 +972,7 @@
   const MAP_SIZE = 12;
   const SAVE_KEY = "mika-epohi-v1-state";
   const TUTORIAL_KEY = "mika-epohi-v1-seen";
+  const UPDATE_KEY = "mika-epohi-v12-seen";
 
   const TERRAIN = {
     plains: { name: "Равнина", icon: "🌿", base: { food: 1, production: 0, gold: 0, science: 0 } },
@@ -971,6 +1049,29 @@
     }
   };
 
+  const UNIT_DEFS = {
+    worker: {
+      name: "Рабочий", icon: "🧑‍🔧", mapIcon: "🔨", tech: null, population: 1,
+      cost: { production: 22 }, maxMoves: 1,
+      description: "Строит улучшения только на клетке, где стоит"
+    },
+    scout: {
+      name: "Разведчик", icon: "🧭", mapIcon: "🧭", tech: null, population: 1,
+      cost: { production: 28 }, maxMoves: 2,
+      description: "Ходит на 2 клетки за ход и открывает область 3×3"
+    },
+    warrior: {
+      name: "Воин", icon: "🛡️", mapIcon: "⚔️", tech: "mining", population: 2,
+      cost: { production: 34 }, maxMoves: 1,
+      description: "Исследует земли; бои появятся вместе с соперником"
+    },
+    settler: {
+      name: "Поселенец", icon: "⛺", mapIcon: "🧳", tech: "trade", population: 4,
+      cost: { production: 52, gold: 15 }, maxMoves: 1,
+      description: "Основывает форпост и расширяет территорию"
+    }
+  };
+
   const TECHS = {
     agriculture: {
       name: "Земледелие", icon: "🌾", cost: 12, prereq: [],
@@ -978,7 +1079,7 @@
     },
     mining: {
       name: "Горное дело", icon: "⛏️", cost: 16, prereq: [],
-      unlock: "Шахты и мастерская"
+      unlock: "Шахты, мастерская и воин"
     },
     writing: {
       name: "Письменность", icon: "✍️", cost: 22, prereq: ["agriculture"],
@@ -986,7 +1087,7 @@
     },
     trade: {
       name: "Торговля", icon: "⚖️", cost: 28, prereq: ["writing"],
-      unlock: "Торговые посты, гавани и рынок"
+      unlock: "Торговые посты, гавани, рынок и поселенец"
     },
     engineering: {
       name: "Инженерия", icon: "📐", cost: 32, prereq: ["mining"],
@@ -1027,6 +1128,7 @@
 
   let state = loadGame() || createNewGame();
   let selected = null;
+  let selectedUnitId = state.units.length ? state.units[0].id : null;
   let toastTimer = null;
 
   function emptyYield() {
@@ -1068,7 +1170,6 @@
       grid.push(row);
     }
 
-    // Make the starting basin varied and always playable.
     const cx = 6;
     const cy = 6;
     const fixed = [
@@ -1100,11 +1201,13 @@
 
   function createNewGame() {
     const newState = {
-      version: 1,
+      version: 2,
       turn: 1,
       map: generateMap(),
-      city: { x: 6, y: 6, name: "Ардена", population: 1, buildings: [] },
-      scout: { x: 6, y: 5, moved: false },
+      city: { x: 6, y: 6, name: "Ардена", population: 1, buildings: [], queue: null },
+      units: [{ id: "u1", type: "scout", x: 6, y: 5, moves: 2, acted: false }],
+      nextUnitId: 2,
+      settlements: [],
       resources: { food: 6, production: 14, gold: 8, science: 4 },
       researched: [],
       currentResearch: "agriculture",
@@ -1113,13 +1216,45 @@
       eventCounter: 0
     };
     revealAround(newState, newState.city.x, newState.city.y, 2);
-    revealAround(newState, newState.scout.x, newState.scout.y, 1);
+    revealAround(newState, 6, 5, 1);
     return newState;
   }
 
   function validState(candidate) {
-    return candidate && candidate.version === 1 && Array.isArray(candidate.map) && candidate.map.length === MAP_SIZE &&
-      candidate.city && candidate.scout && candidate.resources && Array.isArray(candidate.researched);
+    return candidate && Array.isArray(candidate.map) && candidate.map.length === MAP_SIZE &&
+      candidate.city && candidate.resources && Array.isArray(candidate.researched);
+  }
+
+  function migrateState(candidate) {
+    if (!validState(candidate)) return null;
+    if (!Array.isArray(candidate.units)) {
+      const oldScout = candidate.scout || { x: candidate.city.x, y: candidate.city.y - 1, moved: false };
+      candidate.units = [{
+        id: "u1", type: "scout", x: oldScout.x, y: oldScout.y,
+        moves: oldScout.moved ? 0 : 2, acted: false
+      }];
+    }
+    candidate.units.forEach(function (unit, index) {
+      if (!unit.id) unit.id = "u" + (index + 1);
+      if (!UNIT_DEFS[unit.type]) unit.type = "scout";
+      if (typeof unit.moves !== "number") unit.moves = UNIT_DEFS[unit.type].maxMoves;
+      if (typeof unit.acted !== "boolean") unit.acted = false;
+    });
+    if (!Array.isArray(candidate.settlements)) candidate.settlements = [];
+    if (!candidate.city.buildings) candidate.city.buildings = [];
+    if (candidate.city.queue === undefined) candidate.city.queue = null;
+    if (!candidate.nextUnitId) {
+      const maxId = candidate.units.reduce(function (max, unit) {
+        const value = Number(String(unit.id).replace(/\D/g, "")) || 0;
+        return Math.max(max, value);
+      }, 0);
+      candidate.nextUnitId = maxId + 1;
+    }
+    if (!Array.isArray(candidate.history)) candidate.history = [];
+    if (typeof candidate.victory !== "boolean") candidate.victory = false;
+    candidate.version = 2;
+    delete candidate.scout;
+    return candidate;
   }
 
   function safeGet(key) {
@@ -1133,12 +1268,7 @@
   function loadGame() {
     const raw = safeGet(SAVE_KEY);
     if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw);
-      return validState(parsed) ? parsed : null;
-    } catch (error) {
-      return null;
-    }
+    try { return migrateState(JSON.parse(raw)); } catch (error) { return null; }
   }
 
   function saveGame() {
@@ -1159,8 +1289,15 @@
     return 1;
   }
 
+  function chebyshev(x1, y1, x2, y2) {
+    return Math.max(Math.abs(x1 - x2), Math.abs(y1 - y2));
+  }
+
   function inTerritory(x, y) {
-    return Math.max(Math.abs(x - state.city.x), Math.abs(y - state.city.y)) <= territoryRadius();
+    if (chebyshev(x, y, state.city.x, state.city.y) <= territoryRadius()) return true;
+    return state.settlements.some(function (settlement) {
+      return chebyshev(x, y, settlement.x, settlement.y) <= 1;
+    });
   }
 
   function isAdjacent(x1, y1, x2, y2) {
@@ -1175,6 +1312,18 @@
 
   function hasBuilding(id) {
     return state.city.buildings.indexOf(id) !== -1;
+  }
+
+  function getUnit(id) {
+    return state.units.find(function (unit) { return unit.id === id; }) || null;
+  }
+
+  function unitsAt(x, y) {
+    return state.units.filter(function (unit) { return unit.x === x && unit.y === y; });
+  }
+
+  function settlementAt(x, y) {
+    return state.settlements.find(function (settlement) { return settlement.x === x && settlement.y === y; }) || null;
   }
 
   function canAfford(cost) {
@@ -1198,10 +1347,16 @@
     return parts.join(" · ");
   }
 
+  function nonProductionCost(cost) {
+    const result = {};
+    Object.keys(cost || {}).forEach(function (key) {
+      if (key !== "production") result[key] = cost[key];
+    });
+    return result;
+  }
+
   function calculateIncome() {
     const income = { food: 2 + Math.floor(state.city.population / 2), production: 2, gold: 1, science: 2 };
-
-    // The city works its own tile.
     addYield(income, TERRAIN[state.map[state.city.y][state.city.x].terrain].base);
 
     state.map.forEach(function (row) {
@@ -1215,6 +1370,10 @@
 
     state.city.buildings.forEach(function (id) {
       addYield(income, BUILDINGS[id].yield);
+    });
+
+    state.settlements.forEach(function () {
+      addYield(income, { food: 1, production: 1, gold: 1 });
     });
     return income;
   }
@@ -1249,6 +1408,7 @@
   }
 
   function render() {
+    if (selectedUnitId && !getUnit(selectedUnitId)) selectedUnitId = state.units.length ? state.units[0].id : null;
     renderMap();
     renderTop();
     renderContext();
@@ -1275,7 +1435,6 @@
         } else {
           button.classList.add(tile.terrain);
           button.innerHTML = '<span class="terrain-icon">' + TERRAIN[tile.terrain].icon + '</span>';
-
           if (tile.feature) {
             const feature = document.createElement("span");
             feature.className = "feature";
@@ -1296,13 +1455,33 @@
           city.textContent = "🏛️";
           button.appendChild(city);
         }
-        if (state.scout.x === x && state.scout.y === y) {
-          const scout = document.createElement("span");
-          scout.className = "piece scout";
-          scout.textContent = state.scout.moved ? "🧍" : "🧭";
-          button.appendChild(scout);
+
+        const outpost = settlementAt(x, y);
+        if (outpost) {
+          const marker = document.createElement("span");
+          marker.className = "piece outpost";
+          marker.textContent = "⛺";
+          button.appendChild(marker);
         }
+
+        const tileUnits = unitsAt(x, y);
+        if (tileUnits.length) {
+          const shown = tileUnits.find(function (unit) { return unit.id === selectedUnitId; }) || tileUnits[0];
+          const piece = document.createElement("span");
+          piece.className = "piece unit";
+          piece.textContent = UNIT_DEFS[shown.type].mapIcon;
+          button.appendChild(piece);
+          if (tileUnits.length > 1) {
+            const count = document.createElement("span");
+            count.className = "unit-count";
+            count.textContent = String(tileUnits.length);
+            button.appendChild(count);
+          }
+        }
+
         if (selected && selected.x === x && selected.y === y) button.classList.add("selected");
+        const activeUnit = getUnit(selectedUnitId);
+        if (activeUnit && activeUnit.x === x && activeUnit.y === y) button.classList.add("unit-active");
         fragment.appendChild(button);
       }
     }
@@ -1313,13 +1492,13 @@
     const income = calculateIncome();
     turnValue.textContent = String(state.turn);
     eraLabel.textContent = currentEra();
-    subtitle.textContent = state.city.name + " · население " + state.city.population;
+    subtitle.textContent = state.city.name + " · население " + state.city.population + " · юнитов " + state.units.length;
     foodValue.textContent = String(Math.floor(state.resources.food));
     prodValue.textContent = String(Math.floor(state.resources.production));
     goldValue.textContent = String(Math.floor(state.resources.gold));
     scienceValue.textContent = String(Math.floor(state.resources.science));
     foodIncome.textContent = "+" + income.food + " за ход";
-    prodIncome.textContent = "+" + income.production + " за ход";
+    prodIncome.textContent = "+" + income.production + (state.city.queue ? " в очередь" : " в запас");
     goldIncome.textContent = "+" + income.gold + " за ход";
     scienceIncome.textContent = "+" + income.science + " за ход";
   }
@@ -1340,51 +1519,100 @@
     }) || null;
   }
 
+  function cycleUnitAt(x, y) {
+    const list = unitsAt(x, y);
+    if (!list.length) return;
+    const index = list.findIndex(function (unit) { return unit.id === selectedUnitId; });
+    selectedUnitId = list[(index + 1 + list.length) % list.length].id;
+    selected = { x: x, y: y };
+    render();
+  }
+
   function renderContext() {
     contextActions.innerHTML = "";
+    const activeUnit = getUnit(selectedUnitId);
+
     if (!selected) {
-      contextTitle.textContent = "Карта мира";
-      contextText.textContent = state.scout.moved
-        ? "Разведчик уже ходил. Улучшай земли или заверши ход."
-        : "Нажми на клетку. Разведчик может сходить на соседнюю сушу один раз за ход.";
+      contextTitle.textContent = activeUnit ? UNIT_DEFS[activeUnit.type].icon + " " + UNIT_DEFS[activeUnit.type].name : "Карта мира";
+      contextText.textContent = activeUnit
+        ? "Выбран юнит. Нажми соседнюю клетку, чтобы приказать ему двигаться."
+        : "Нажми на клетку или произведи юнита в городе.";
       return;
     }
 
     const x = selected.x;
     const y = selected.y;
     const tile = state.map[y][x];
+    const hereUnits = unitsAt(x, y);
+    const outpost = settlementAt(x, y);
 
     if (!tile.revealed) {
       contextTitle.textContent = "Неизведанная земля";
-      contextText.textContent = "Отправь разведчика на соседнюю клетку, чтобы открыть её и окрестности.";
+      contextText.textContent = "Подведи разведчика или другого юнита к этой клетке.";
     } else {
       const extras = [];
       if (tile.feature) extras.push(FEATURES[tile.feature].name);
       if (tile.improvement) extras.push(IMPROVEMENTS[tile.improvement].name);
+      if (outpost) extras.push(outpost.name);
       contextTitle.textContent = TERRAIN[tile.terrain].icon + " " + TERRAIN[tile.terrain].name;
       contextText.textContent = "Доход: " + yieldText(getTileYield(tile)) + (extras.length ? " · " + extras.join(" · ") : "");
+    }
+
+    if (activeUnit && activeUnit.x === x && activeUnit.y === y) {
+      const def = UNIT_DEFS[activeUnit.type];
+      contextTitle.textContent = def.icon + " " + def.name;
+      contextText.textContent = def.description + " · ходов осталось: " + activeUnit.moves;
+
+      if (activeUnit.type === "worker") {
+        const improvementId = availableImprovement(tile);
+        const blocked = !tile.revealed || !inTerritory(x, y) || !!tile.improvement ||
+          (state.city.x === x && state.city.y === y) || !!outpost || activeUnit.acted;
+        if (improvementId && !blocked) {
+          const imp = IMPROVEMENTS[improvementId];
+          contextActions.appendChild(actionButton(imp.icon + "<br>" + formatCost(imp.cost), "alt", function () {
+            buildImprovementWithWorker(activeUnit.id, improvementId);
+          }, !canAfford(imp.cost)));
+        }
+      }
+
+      if (activeUnit.type === "settler" && canFoundOutpost(activeUnit)) {
+        contextActions.appendChild(actionButton("Основать<br>⛺", "alt", function () {
+          foundOutpost(activeUnit.id);
+        }, false));
+      }
+
+      if (hereUnits.length > 1) {
+        contextActions.appendChild(actionButton("Другой<br>юнит", "", function () { cycleUnitAt(x, y); }, false));
+      }
+      return;
     }
 
     if (state.city.x === x && state.city.y === y) {
       contextTitle.textContent = "🏛️ " + state.city.name;
       contextText.textContent = "Население " + state.city.population + " · территория " + territoryRadius() + " клетки";
       contextActions.appendChild(actionButton("Открыть<br>город", "", function () { openCity(); }, false));
-      return;
     }
 
-    const canMove = !state.scout.moved && isAdjacent(state.scout.x, state.scout.y, x, y) && tile.terrain !== "water";
-    if (canMove) {
-      contextActions.appendChild(actionButton("Идти<br>🧭", "", function () { moveScout(x, y); }, false));
+    if (activeUnit && canMoveUnitTo(activeUnit, x, y)) {
+      contextActions.appendChild(actionButton("Идти<br>" + UNIT_DEFS[activeUnit.type].mapIcon, "", function () {
+        moveUnit(activeUnit.id, x, y);
+      }, false));
     }
 
-    if (tile.revealed && inTerritory(x, y) && !tile.improvement) {
-      const improvementId = availableImprovement(tile);
-      if (improvementId) {
-        const def = IMPROVEMENTS[improvementId];
-        contextActions.appendChild(actionButton(def.icon + "<br>" + formatCost(def.cost), "alt", function () {
-          buildImprovement(x, y, improvementId);
-        }, !canAfford(def.cost)));
-      }
+    if (activeUnit && activeUnit.type === "worker" && !activeUnit.acted &&
+        isAdjacent(activeUnit.x, activeUnit.y, x, y) && tile.revealed && tile.terrain === "water" &&
+        inTerritory(x, y) && !tile.improvement && availableImprovement(tile) === "harbor") {
+      const harbor = IMPROVEMENTS.harbor;
+      contextActions.appendChild(actionButton(harbor.icon + "<br>" + formatCost(harbor.cost), "alt", function () {
+        buildImprovementWithWorker(activeUnit.id, "harbor", x, y);
+      }, !canAfford(harbor.cost)));
+    }
+
+    if (hereUnits.length) {
+      contextActions.appendChild(actionButton("Выбрать<br>юнит", "alt", function () {
+        selectedUnitId = hereUnits[0].id;
+        render();
+      }, false));
     }
   }
 
@@ -1395,21 +1623,30 @@
     scienceBadge.classList.toggle("show", !state.currentResearch && available);
   }
 
-  function moveScout(x, y) {
-    const tile = state.map[y][x];
-    if (state.scout.moved || !isAdjacent(state.scout.x, state.scout.y, x, y) || tile.terrain === "water") return;
-    state.scout.x = x;
-    state.scout.y = y;
-    state.scout.moved = true;
-    tile.revealed = true;
-    revealAround(state, x, y, 1);
+  function canMoveUnitTo(unit, x, y) {
+    if (!unit || unit.moves <= 0) return false;
+    if (!isAdjacent(unit.x, unit.y, x, y)) return false;
+    return state.map[y][x].terrain !== "water";
+  }
 
-    if (tile.feature === "ruins") {
+  function moveUnit(unitId, x, y) {
+    const unit = getUnit(unitId);
+    if (!canMoveUnitTo(unit, x, y)) return;
+    unit.x = x;
+    unit.y = y;
+    unit.moves -= 1;
+    const radius = unit.type === "scout" || unit.type === "warrior" ? 1 : 0;
+    state.map[y][x].revealed = true;
+    revealAround(state, x, y, radius);
+
+    const tile = state.map[y][x];
+    if (tile.feature === "ruins" && (unit.type === "scout" || unit.type === "warrior")) {
       exploreRuins(tile);
     } else {
-      showToast("Разведчик открыл новые земли.");
+      showToast(UNIT_DEFS[unit.type].name + " перемещён.");
     }
     selected = { x: x, y: y };
+    selectedUnitId = unit.id;
     render();
   }
 
@@ -1427,14 +1664,49 @@
     showToast(outcome.text);
   }
 
-  function buildImprovement(x, y, id) {
+  function buildImprovementWithWorker(unitId, id, targetX, targetY) {
+    const unit = getUnit(unitId);
+    if (!unit || unit.type !== "worker" || unit.acted) return;
+    const x = targetX == null ? unit.x : targetX;
+    const y = targetY == null ? unit.y : targetY;
     const tile = state.map[y][x];
     const def = IMPROVEMENTS[id];
-    if (!tile.revealed || tile.improvement || !inTerritory(x, y) || !canAfford(def.cost)) return;
+    const coastalBuild = id === "harbor" && tile.terrain === "water" && isAdjacent(unit.x, unit.y, x, y);
+    const standingBuild = unit.x === x && unit.y === y;
+    if (!def || (!standingBuild && !coastalBuild) || !tile.revealed || tile.improvement || !inTerritory(x, y) ||
+        def.terrain.indexOf(tile.terrain) === -1 || (def.tech && !hasTech(def.tech)) ||
+        !canAfford(def.cost) || (state.city.x === x && state.city.y === y) || settlementAt(x, y)) return;
     pay(def.cost);
     tile.improvement = id;
-    state.history.unshift("Ход " + state.turn + ": построено улучшение «" + def.name + "».");
+    unit.acted = true;
+    unit.moves = 0;
+    state.history.unshift("Ход " + state.turn + ": рабочий построил «" + def.name + "».");
     showToast(def.icon + " " + def.name + " построена. " + def.description + ".");
+    render();
+  }
+
+  function canFoundOutpost(unit) {
+    if (!unit || unit.type !== "settler" || unit.acted) return false;
+    const tile = state.map[unit.y][unit.x];
+    if (!tile.revealed || tile.terrain === "water" || tile.improvement) return false;
+    if (state.city.x === unit.x && state.city.y === unit.y) return false;
+    if (inTerritory(unit.x, unit.y)) return false;
+    if (chebyshev(unit.x, unit.y, state.city.x, state.city.y) < 3) return false;
+    return state.settlements.every(function (settlement) {
+      return chebyshev(unit.x, unit.y, settlement.x, settlement.y) >= 3;
+    });
+  }
+
+  function foundOutpost(unitId) {
+    const unit = getUnit(unitId);
+    if (!canFoundOutpost(unit)) return;
+    const name = "Форпост " + (state.settlements.length + 1);
+    state.settlements.push({ x: unit.x, y: unit.y, name: name });
+    revealAround(state, unit.x, unit.y, 1);
+    state.units = state.units.filter(function (item) { return item.id !== unit.id; });
+    selectedUnitId = state.units.length ? state.units[0].id : null;
+    state.history.unshift("Ход " + state.turn + ": основан " + name + ".");
+    showToast("⛺ " + name + " основан: +1 🍞, +1 🔨 и +1 🪙 за ход.", 3000);
     render();
   }
 
@@ -1450,27 +1722,114 @@
     openScience();
   }
 
-  function buildBuilding(id) {
-    const def = BUILDINGS[id];
-    if (hasBuilding(id) || (def.tech && !hasTech(def.tech)) || !canAfford(def.cost)) return;
+  function projectDef(type, id) {
+    return type === "building" ? BUILDINGS[id] : UNIT_DEFS[id];
+  }
+
+  function projectLabel(queue) {
+    if (!queue) return "";
+    const def = projectDef(queue.type, queue.id);
+    return def.icon + " " + def.name;
+  }
+
+  function queueProject(type, id) {
+    if (state.city.queue) {
+      showToast("Сначала заверши или отмени текущий проект.");
+      return;
+    }
+    const def = projectDef(type, id);
+    if (!def) return;
+    if (def.tech && !hasTech(def.tech)) return;
+    if (type === "building" && hasBuilding(id)) return;
     if (id === "palace" && state.city.population < 6) {
       showToast("Для дворца нужно население 6.");
       return;
     }
-    pay(def.cost);
-    state.city.buildings.push(id);
-    state.history.unshift("Ход " + state.turn + ": построено здание «" + def.name + "».");
-    showToast(def.icon + " " + def.name + " построен.");
-
-    if (id === "palace") {
-      state.victory = true;
-      render();
-      closeModal("cityModal");
-      openVictory();
+    if (type === "unit" && state.city.population < def.population) {
+      showToast("Для этого юнита нужно население " + def.population + ".");
       return;
     }
+    const upfront = nonProductionCost(def.cost);
+    if (!canAfford(upfront)) {
+      showToast("Не хватает ресурсов для начала проекта.");
+      return;
+    }
+    pay(upfront);
+    state.city.queue = { type: type, id: id, progress: 0, cost: def.cost.production || 0, upfront: upfront };
+    state.history.unshift("Ход " + state.turn + ": начат проект «" + def.name + "».");
+    showToast("В очередь добавлено: " + def.icon + " " + def.name + ".");
     render();
     openCity();
+  }
+
+  function cancelQueue() {
+    const queue = state.city.queue;
+    if (!queue) return;
+    Object.keys(queue.upfront || {}).forEach(function (key) {
+      state.resources[key] += queue.upfront[key];
+    });
+    const def = projectDef(queue.type, queue.id);
+    state.city.queue = null;
+    state.history.unshift("Ход " + state.turn + ": отменён проект «" + def.name + "».");
+    showToast("Проект отменён. Вложенное производство потеряно.");
+    render();
+    openCity();
+  }
+
+  function rushQueue() {
+    const queue = state.city.queue;
+    if (!queue || state.resources.production <= 0) return;
+    const amount = Math.min(state.resources.production, queue.cost - queue.progress);
+    state.resources.production -= amount;
+    queue.progress += amount;
+    const completed = finishQueueIfReady();
+    showToast(completed ? completed.text : "В проект вложено 🔨 " + amount + ".");
+    render();
+    if (completed && completed.victory) {
+      closeModal("cityModal");
+      openVictory();
+    } else {
+      openCity();
+    }
+  }
+
+  function addUnit(type) {
+    const id = "u" + state.nextUnitId++;
+    state.units.push({
+      id: id, type: type, x: state.city.x, y: state.city.y,
+      moves: 0, acted: false
+    });
+    return id;
+  }
+
+  function finishQueueIfReady() {
+    const queue = state.city.queue;
+    if (!queue || queue.progress < queue.cost) return null;
+    const def = projectDef(queue.type, queue.id);
+    state.city.queue = null;
+
+    if (queue.type === "building") {
+      state.city.buildings.push(queue.id);
+      state.history.unshift("Ход " + state.turn + ": завершено здание «" + def.name + "».");
+      if (queue.id === "palace") state.victory = true;
+      return { text: def.icon + " " + def.name + " завершён.", victory: queue.id === "palace" };
+    }
+
+    const unitId = addUnit(queue.id);
+    state.history.unshift("Ход " + state.turn + ": подготовлен юнит «" + def.name + "».");
+    return { text: def.icon + " " + def.name + " готов в городе.", unitId: unitId, victory: false };
+  }
+
+  function processProduction(amount) {
+    if (!state.city.queue) {
+      state.resources.production += amount;
+      return null;
+    }
+    state.city.queue.progress += amount;
+    const overflow = Math.max(0, state.city.queue.progress - state.city.queue.cost);
+    const completed = finishQueueIfReady();
+    if (completed && overflow > 0) state.resources.production += overflow;
+    return completed;
   }
 
   function finishResearch() {
@@ -1501,7 +1860,7 @@
     if (state.turn < 5 || state.turn % 5 !== 0 || Math.random() > .62) return null;
     const events = [
       { key: "food", amount: 7, text: "Богатый урожай принёс +7 🍞" },
-      { key: "production", amount: 6, text: "Умелые мастера дали +6 🔨" },
+      { key: "production", amount: 6, text: "Умелые мастера дали +6 🔨 в запас" },
       { key: "gold", amount: 8, text: "Караван торговцев оставил +8 🪙" },
       { key: "science", amount: 6, text: "Мудрец поделился знаниями: +6 🔬" },
       { key: "food", amount: -5, text: "Засуха уничтожила 5 🍞" }
@@ -1519,21 +1878,29 @@
     }
     endTurnBtn.disabled = true;
     const income = calculateIncome();
-    addYield(state.resources, income);
+    state.resources.food += income.food;
+    state.resources.gold += income.gold;
+    state.resources.science += income.science;
+    const completedProject = processProduction(income.production);
     const grew = applyGrowth();
     const completedTech = finishResearch();
     const eventText = randomEvent();
     state.turn += 1;
-    state.scout.moved = false;
+    state.units.forEach(function (unit) {
+      unit.moves = UNIT_DEFS[unit.type].maxMoves;
+      unit.acted = false;
+    });
     selected = null;
 
-    let message = "Получено: 🍞" + income.food + " · 🔨" + income.production + " · 🪙" + income.gold + " · 🔬" + income.science;
+    let message = "Получено: 🍞" + income.food + " · 🔨" + income.production + (state.city.queue ? " в проект" : "") + " · 🪙" + income.gold + " · 🔬" + income.science;
     if (grew) message = "Население выросло до " + state.city.population + "! " + message;
     if (completedTech) message = completedTech.icon + " Изучено: " + completedTech.name + ". " + message;
+    if (completedProject) message = completedProject.text + " " + message;
     if (eventText) message = eventText + ". " + message;
-    showToast(message, 3000);
+    showToast(message, 3600);
     render();
     endTurnBtn.disabled = false;
+    if (completedProject && completedProject.victory) openVictory();
   }
 
   function openModal(id) {
@@ -1544,6 +1911,27 @@
     document.getElementById(id).classList.remove("show");
   }
 
+  function projectCard(type, id) {
+    const def = projectDef(type, id);
+    const isBuilding = type === "building";
+    const done = isBuilding && hasBuilding(id);
+    const locked = def.tech && !hasTech(def.tech);
+    const populationLocked = (id === "palace" && state.city.population < 6) ||
+      (!isBuilding && state.city.population < def.population);
+    const busy = !!state.city.queue;
+    const upfront = nonProductionCost(def.cost);
+    const affordable = canAfford(upfront);
+    let button;
+    if (done) button = '<button class="card-button neutral" disabled>Построено</button>';
+    else if (locked) button = '<button class="card-button neutral" disabled>Нужно: ' + TECHS[def.tech].name + '</button>';
+    else if (populationLocked) button = '<button class="card-button neutral" disabled>Население ' + (isBuilding ? 6 : def.population) + '</button>';
+    else if (busy) button = '<button class="card-button neutral" disabled>Очередь занята</button>';
+    else button = '<button class="card-button ' + (affordable ? '' : 'neutral') + '" data-queue-type="' + type + '" data-queue-id="' + id + '" ' + (affordable ? '' : 'disabled') + '>' + formatCost(def.cost) + '</button>';
+
+    return '<article class="game-card ' + (done ? 'done' : '') + ' ' + (locked ? 'locked' : '') + '">' +
+      '<div><h3>' + def.icon + ' ' + def.name + '</h3><p>' + def.description + '</p></div>' + button + '</article>';
+  }
+
   function openCity() {
     const income = calculateIncome();
     const need = growthNeed(state.city.population);
@@ -1552,38 +1940,45 @@
       ? state.city.buildings.map(function (id) { return '<span class="chip">' + BUILDINGS[id].icon + ' ' + BUILDINGS[id].name + '</span>'; }).join("")
       : '<span class="chip">Пока нет зданий</span>';
 
-    let cards = "";
-    Object.keys(BUILDINGS).forEach(function (id) {
-      const def = BUILDINGS[id];
-      const done = hasBuilding(id);
-      const locked = def.tech && !hasTech(def.tech);
-      const populationLocked = id === "palace" && state.city.population < 6;
-      let button;
-      if (done) button = '<button class="card-button neutral" disabled>Построено</button>';
-      else if (locked) button = '<button class="card-button neutral" disabled>Нужно: ' + TECHS[def.tech].name + '</button>';
-      else if (populationLocked) button = '<button class="card-button neutral" disabled>Население 6</button>';
-      else button = '<button class="card-button ' + (canAfford(def.cost) ? '' : 'neutral') + '" data-build="' + id + '" ' + (canAfford(def.cost) ? '' : 'disabled') + '>' + formatCost(def.cost) + '</button>';
+    let queueHtml = '<div class="inline-note">Очередь пуста. Пока город ничего не производит, 🔨 доход копится в общем запасе.</div>';
+    if (state.city.queue) {
+      const queue = state.city.queue;
+      const queueProgress = Math.min(100, queue.progress / queue.cost * 100);
+      queueHtml = '<div class="queue-box">' +
+        '<div class="queue-head"><strong>' + projectLabel(queue) + '</strong><span>+' + income.production + ' 🔨 за ход</span></div>' +
+        '<div class="progress"><span style="width:' + queueProgress + '%"></span></div>' +
+        '<div class="progress-label"><span>🔨 ' + Math.floor(queue.progress) + ' / ' + queue.cost + '</span><span>примерно ' + Math.max(1, Math.ceil((queue.cost - queue.progress) / Math.max(1, income.production))) + ' ход.</span></div>' +
+        '<div class="queue-actions"><button id="rushQueueBtn" class="tiny-btn secondary" ' + (state.resources.production > 0 ? '' : 'disabled') + '>Вложить запас 🔨 ' + Math.floor(state.resources.production) + '</button>' +
+        '<button id="cancelQueueBtn" class="tiny-btn danger">Отменить</button></div></div>';
+    }
 
-      cards += '<article class="game-card ' + (done ? 'done' : '') + ' ' + (locked ? 'locked' : '') + '">' +
-        '<div><h3>' + def.icon + ' ' + def.name + '</h3><p>' + def.description + '</p></div>' + button + '</article>';
-    });
+    const buildings = Object.keys(BUILDINGS).map(function (id) { return projectCard("building", id); }).join("");
+    const units = Object.keys(UNIT_DEFS).map(function (id) { return projectCard("unit", id); }).join("");
 
     cityContent.innerHTML =
       '<div class="section-title">Город</div>' +
       '<div class="summary-grid">' +
         '<div class="summary-card"><strong>' + state.city.population + '</strong><small>население</small></div>' +
-        '<div class="summary-card"><strong>' + currentEra() + '</strong><small>эпоха</small></div>' +
-        '<div class="summary-card"><strong>' + territoryRadius() + '</strong><small>радиус земель</small></div>' +
+        '<div class="summary-card"><strong>' + state.units.length + '</strong><small>юнитов</small></div>' +
+        '<div class="summary-card"><strong>' + state.settlements.length + '</strong><small>форпостов</small></div>' +
       '</div>' +
       '<div class="section-title">Рост населения</div>' +
       '<div class="progress"><span style="width:' + progress + '%"></span></div>' +
       '<div class="progress-label"><span>🍞 ' + Math.floor(state.resources.food) + ' / ' + need + '</span><span>+' + income.food + ' за ход</span></div>' +
+      '<div class="section-title">Очередь производства</div>' + queueHtml +
       '<div class="section-title">Построено</div><div class="built-list">' + built + '</div>' +
-      '<div class="section-title">Доступные здания</div><div class="card-list">' + cards + '</div>';
+      '<div class="section-title">Нанять юнита</div><div class="card-list">' + units + '</div>' +
+      '<div class="section-title">Построить здание</div><div class="card-list">' + buildings + '</div>';
 
-    Array.from(cityContent.querySelectorAll("[data-build]")).forEach(function (button) {
-      button.addEventListener("click", function () { buildBuilding(button.dataset.build); });
+    Array.from(cityContent.querySelectorAll("[data-queue-type]")).forEach(function (button) {
+      button.addEventListener("click", function () {
+        queueProject(button.dataset.queueType, button.dataset.queueId);
+      });
     });
+    const rush = document.getElementById("rushQueueBtn");
+    if (rush) rush.addEventListener("click", rushQueue);
+    const cancel = document.getElementById("cancelQueueBtn");
+    if (cancel) cancel.addEventListener("click", cancelQueue);
     openModal("cityModal");
   }
 
@@ -1635,24 +2030,23 @@
 
   function openWiki() {
     const currentNeed = growthNeed(state.city.population);
-
     const resources = [
-      wikiRow("🍞 Еда", "Копится между ходами. В конце хода при достижении порога город автоматически получает +1 население, а нужная еда списывается. Формула порога: 12 + население × 7. Сейчас нужно " + currentNeed + "."),
-      wikiRow("🔨 Производство", "Тратится на улучшения клеток и здания. Само строительство происходит сразу после оплаты — очереди строительства пока нет."),
-      wikiRow("🪙 Золото", "Нужно для части улучшений и зданий. Пока нет содержания юнитов, торговли с соперниками или покупки клеток."),
-      wikiRow("🔬 Наука", "Идёт в выбранную технологию. Проверка завершения происходит в конце хода; стоимость списывается, остаток науки сохраняется.")
+      wikiRow("🍞 Еда", "Копится между ходами. При достижении порога столица автоматически получает +1 население. Сейчас для роста нужно " + currentNeed + "."),
+      wikiRow("🔨 Производство", "Если очередь пуста, производство копится в запасе. Если выбран городской проект, весь доход 🔨 идёт в его шкалу. Запас можно вручную вложить в проект или потратить рабочим на улучшение клетки."),
+      wikiRow("🪙 Золото", "Оплачивает часть проектов и улучшений. Для городского проекта золото списывается при постановке в очередь и возвращается при отмене."),
+      wikiRow("🔬 Наука", "Идёт в выбранную технологию. Проверка завершения происходит в конце хода; остаток науки сохраняется.")
     ].join("");
 
     const terrain = Object.keys(TERRAIN).map(function (id) {
       const def = TERRAIN[id];
-      return wikiRow(def.icon + " " + def.name, "Базовый доход клетки: " + yieldText(def.base) + ". Он учитывается у клетки города и у любой клетки, на которой построено улучшение.");
+      return wikiRow(def.icon + " " + def.name, "Базовый доход: " + yieldText(def.base) + ". Полный доход клетки включается после строительства улучшения.");
     }).join("");
 
     const features = Object.keys(FEATURES).map(function (id) {
       const def = FEATURES[id];
       const text = id === "ruins"
-        ? "Одноразовая находка. Срабатывает, когда разведчик входит на клетку: даёт случайный запас еды, производства, золота или науки."
-        : "Бонус " + yieldText(def.bonus) + " добавляется только после строительства подходящего улучшения на этой клетке.";
+        ? "Разведчик или воин получает случайную награду и убирает руины с карты."
+        : "Бонус " + yieldText(def.bonus) + " добавляется после строительства подходящего улучшения.";
       return wikiRow(def.icon + " " + def.name, text);
     }).join("");
 
@@ -1660,7 +2054,7 @@
       const def = IMPROVEMENTS[id];
       return '<article class="game-card"><div><h3>' + def.icon + ' ' + def.name + '</h3><p>' +
         def.description + '<br>Клетки: ' + terrainNames(def.terrain) + '<br>Условие: ' + techRequirement(def.tech) +
-        '</p></div><strong>' + formatCost(def.cost) + '</strong></article>';
+        (id === "harbor" ? '<br>Рабочий должен стоять на соседнем берегу.' : '<br>Нужен рабочий на этой клетке.') + '</p></div><strong>' + formatCost(def.cost) + '</strong></article>';
     }).join("");
 
     const buildings = Object.keys(BUILDINGS).map(function (id) {
@@ -1668,44 +2062,48 @@
       let extra = "Условие: " + techRequirement(def.tech);
       if (id === "palace") extra += " и население 6";
       return '<article class="game-card"><div><h3>' + def.icon + ' ' + def.name + '</h3><p>' + def.description + '<br>' + extra +
-        '</p></div><strong>' + formatCost(def.cost) + '</strong></article>';
+        '<br>Строится через городскую очередь.</p></div><strong>' + formatCost(def.cost) + '</strong></article>';
+    }).join("");
+
+    const units = Object.keys(UNIT_DEFS).map(function (id) {
+      const def = UNIT_DEFS[id];
+      return '<article class="game-card"><div><h3>' + def.icon + ' ' + def.name + '</h3><p>' + def.description +
+        '<br>Ходов за раунд: ' + def.maxMoves + '<br>Условие: ' + techRequirement(def.tech) + ', население ' + def.population +
+        '.</p></div><strong>' + formatCost(def.cost) + '</strong></article>';
     }).join("");
 
     const techs = Object.keys(TECHS).map(function (id) {
       const def = TECHS[id];
-      const prereq = def.prereq.length
-        ? def.prereq.map(function (req) { return TECHS[req].name; }).join(", ")
-        : "нет";
+      const prereq = def.prereq.length ? def.prereq.map(function (req) { return TECHS[req].name; }).join(", ") : "нет";
       return '<article class="game-card"><div><h3>' + def.icon + ' ' + def.name + '</h3><p>Открывает: ' + def.unlock + '<br>Предыдущие технологии: ' + prereq +
         '</p></div><strong>🔬 ' + def.cost + '</strong></article>';
     }).join("");
 
     wikiContent.innerHTML =
-      '<div class="section-title">Главное о текущей версии</div>' +
-      '<div class="wiki-callout"><strong>Да, юнит пока один.</strong> Разведчик открывает карту, но ничего не строит. Улучшения возводятся условным населением города по твоему приказу на любой открытой клетке внутри городской территории. Рабочих, воинов, поселенцев, найма юнитов и второго города в v1.1 ещё нет.</div>' +
-
-      '<div class="section-title">Разведчик и территория</div>' +
+      '<div class="section-title">Что изменилось в v1.2</div>' +
+      '<div class="wiki-callout"><strong>Теперь юниты настоящие.</strong> Разведчик только исследует. Рабочий должен стоять на нужной клетке, чтобы построить улучшение. В городе можно производить второго разведчика, рабочего, воина и поселенца.</div>' +
+      '<div class="section-title">Юниты и карта</div>' +
       '<div class="wiki-list">' +
-        wikiRow("🧭 Разведчик", "Один раз за ход переходит на соседнюю клетку суши, включая диагональ. В воду входить не может. После движения открывает свою клетку и область 3×3 вокруг неё.") +
-        wikiRow("🏛️ Территория", "Строить улучшения можно только на открытых клетках в радиусе города. При населении 1–2 радиус равен 1 клетке; при 3–5 — 2; при 6 и выше — 3. Расстояние разведчика до стройки не имеет значения.") +
-        wikiRow("🔨 Строительство", "Если клетка подходит, технология открыта и ресурсов хватает, улучшение появляется сразу. На одной клетке может быть только одно улучшение.") +
-        wikiRow("☀️ Конец хода", "Начисляет весь доход, проверяет рост населения и завершение технологии, иногда запускает случайное событие, затем возвращает ход разведчику.") +
+        wikiRow("Выбор юнита", "Нажми клетку с юнитом. Голубая рамка показывает активного юнита. Затем нажми соседнюю клетку и кнопку «Идти». Если юнитов несколько, используй «Другой юнит».") +
+        wikiRow("🧭 Разведчик", "Имеет 2 перемещения за ход. После каждого шага открывает область 3×3. Может исследовать древние руины.") +
+        wikiRow("🧑‍🔧 Рабочий", "Имеет 1 перемещение. Строит сухопутное улучшение под собой, а гавань — на соседней водной клетке. Строить можно только внутри территории и один раз за ход; цена списывается из общего запаса.") +
+        wikiRow("🛡️ Воин", "Имеет 1 перемещение и исследует область вокруг себя. Пока не с кем сражаться; боевую систему добавим вместе с ИИ-соперником.") +
+        wikiRow("⛺ Поселенец", "После технологии «Торговля» и при населении 4 может уйти за границы и основать форпост. Форпост даёт +1 🍞, +1 🔨, +1 🪙 и территорию радиусом 1.") +
+        wikiRow("🏛️ Территория", "Радиус столицы: 1 клетка при населении 1–2, 2 при 3–5 и 3 при 6+. Каждый форпост добавляет собственный радиус 1.") +
       '</div>' +
-
-      '<div class="section-title">Как считается доход</div>' +
-      '<div class="wiki-callout">Город каждый ход даёт базово 🍞 2 + половину населения с округлением вниз, 🔨 2, 🪙 1 и 🔬 2. Дополнительно учитываются местность под городом, полный доход каждой улучшенной клетки и все здания. Назначать жителей на клетки пока не нужно.</div>' +
-
+      '<div class="section-title">Городская очередь</div>' +
+      '<div class="wiki-callout">В городе одновременно создаётся только один проект: здание или юнит. Доход производства автоматически продвигает проект каждый конец хода. Накопленный запас 🔨 можно вложить мгновенно кнопкой в окне города.</div>' +
       '<details class="wiki-details" open><summary>Ресурсы</summary><div class="wiki-details-body"><div class="wiki-list">' + resources + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Юниты</summary><div class="wiki-details-body"><div class="card-list">' + units + '</div></div></details>' +
       '<details class="wiki-details"><summary>Типы местности</summary><div class="wiki-details-body"><div class="wiki-list">' + terrain + '</div></div></details>' +
       '<details class="wiki-details"><summary>Особенности клеток</summary><div class="wiki-details-body"><div class="wiki-list">' + features + '</div></div></details>' +
       '<details class="wiki-details"><summary>Улучшения клеток</summary><div class="wiki-details-body"><div class="card-list">' + improvements + '</div></div></details>' +
       '<details class="wiki-details"><summary>Здания города</summary><div class="wiki-details-body"><div class="card-list">' + buildings + '</div></div></details>' +
       '<details class="wiki-details"><summary>Технологии</summary><div class="wiki-details-body"><div class="card-list">' + techs + '</div></div></details>' +
-
       '<div class="section-title">Условие победы</div>' +
-      '<div class="wiki-callout">Изучи «Государственность», вырасти до населения 6, накопи 🔨 80 и 🪙 30, затем построй 🏰 Дворец.</div>' +
-      '<div class="section-title">Ограничения v1.1</div>' +
-      '<div class="inline-note">Пока нет рабочих, очереди производства, найма юнитов, боёв, противников, дорог, содержания армии, второго города и поселенцев. Это следующие системы, которые можно добавлять по одной.</div>';
+      '<div class="wiki-callout">Изучи «Государственность», вырасти до населения 6 и заверши 🏰 Дворец в городской очереди.</div>' +
+      '<div class="section-title">Что ещё впереди</div>' +
+      '<div class="inline-note">Форпост пока не является полноценным вторым городом: у него нет собственного населения и очереди. Также пока нет ИИ-соперника, боёв, здоровья юнитов, дорог и дипломатии.</div>';
 
     openModal("wikiModal");
   }
@@ -1719,10 +2117,10 @@
     menuContent.innerHTML =
       '<div class="section-title">Как играть</div>' +
       '<div class="inline-note">' +
-        '<strong>1.</strong> Нажми соседнюю клетку и отправь туда разведчика.<br>' +
-        '<strong>2.</strong> Строй фермы, шахты и другие улучшения на открытых клетках внутри территории города — разведчик для этого не нужен.<br>' +
-        '<strong>3.</strong> Завершай ходы, копи ресурсы, исследуй технологии и возводи здания.<br>' +
-        '<strong>Цель:</strong> изучить государственность, вырастить население до 6 и построить дворец.' +
+        '<strong>1.</strong> Нажми юнита, затем соседнюю клетку и «Идти».<br>' +
+        '<strong>2.</strong> В городе поставь в очередь рабочего, юнита или здание.<br>' +
+        '<strong>3.</strong> Рабочим встань на клетку внутри территории и построй улучшение.<br>' +
+        '<strong>4.</strong> Исследуй технологии, расширяйся форпостами и заверши дворец.' +
       '</div>' +
       '<div class="section-title">Сохранение</div><div class="inline-note">' + saved + '</div>' +
       '<div class="section-title">Последние события</div><div class="built-list">' + history + '</div>' +
@@ -1751,11 +2149,11 @@
       '<p class="victory-copy">Из маленького племени выросло государство. Ардена стала столицей новой империи.</p>' +
       '<div class="summary-grid">' +
         '<div class="summary-card"><strong>' + state.turn + '</strong><small>ходов</small></div>' +
-        '<div class="summary-card"><strong>' + state.city.population + '</strong><small>население</small></div>' +
-        '<div class="summary-card"><strong>' + improvementsCount + '</strong><small>улучшений</small></div>' +
+        '<div class="summary-card"><strong>' + state.units.length + '</strong><small>юнитов</small></div>' +
+        '<div class="summary-card"><strong>' + (improvementsCount + state.settlements.length) + '</strong><small>объектов</small></div>' +
       '</div>' +
       '<div class="section-title">Что дальше</div>' +
-      '<div class="inline-note">Можно продолжить развивать карту или начать новый мир. Следующей версией добавим соперника, воинов и второй город.</div>' +
+      '<div class="inline-note">Можно продолжить развивать карту. Следующая крупная версия — ИИ-соперник, лагеря и настоящие бои.</div>' +
       '<div class="menu-actions" style="margin-top:12px">' +
         '<button id="continueAfterVictory" class="wide-btn">Продолжить эту империю</button>' +
         '<button id="newAfterVictory" class="wide-btn secondary">Начать новый мир</button>' +
@@ -1772,10 +2170,11 @@
     if (!skipConfirm && !window.confirm("Удалить текущее сохранение и создать новый мир?")) return;
     state = createNewGame();
     selected = null;
+    selectedUnitId = state.units[0].id;
     closeModal("menuModal");
     closeModal("wikiModal");
     closeModal("victoryModal");
-    showToast("Новый мир создан. Земледелие уже исследуется.");
+    showToast("Новый мир создан. Начни с рабочего или разведки.");
     render();
   }
 
@@ -1791,7 +2190,18 @@
   mapEl.addEventListener("click", function (event) {
     const tileEl = event.target.closest(".tile");
     if (!tileEl) return;
-    selected = { x: Number(tileEl.dataset.x), y: Number(tileEl.dataset.y) };
+    const x = Number(tileEl.dataset.x);
+    const y = Number(tileEl.dataset.y);
+    const active = getUnit(selectedUnitId);
+    const clickedUnits = unitsAt(x, y);
+    const clickedActiveTile = active && active.x === x && active.y === y;
+    const clickedDestination = active && !clickedActiveTile && isAdjacent(active.x, active.y, x, y);
+
+    selected = { x: x, y: y };
+    if (clickedUnits.length && !clickedDestination) {
+      if (clickedActiveTile && clickedUnits.length > 1) cycleUnitAt(x, y);
+      else selectedUnitId = clickedUnits[0].id;
+    }
     renderMap();
     renderContext();
   });
@@ -1815,10 +2225,7 @@
 
   document.addEventListener("gesturestart", function (event) { event.preventDefault(); }, { passive: false });
   window.addEventListener("contextmenu", function (event) { event.preventDefault(); });
-
-  document.addEventListener("visibilitychange", function () {
-    if (document.hidden) saveGame();
-  });
+  document.addEventListener("visibilitychange", function () { if (document.hidden) saveGame(); });
   window.addEventListener("pagehide", saveGame);
 
   render();
@@ -1828,6 +2235,12 @@
     setTimeout(function () {
       openMenu();
       showToast("Добро пожаловать в «Эпохи»!");
+    }, 250);
+  } else if (!safeGet(UPDATE_KEY)) {
+    safeSet(UPDATE_KEY, "1");
+    setTimeout(function () {
+      openWiki();
+      showToast("v1.2: очередь, рабочие и новые юниты.", 3000);
     }, 250);
   } else if (state.victory) {
     setTimeout(openVictory, 250);

@@ -1,4 +1,4 @@
-const CACHE_NAME = "mika-epohi-v1-1-2026-06-16";
+const CACHE_NAME = "epohi-v1-2-cache";
 const APP_FILES = [
   "./",
   "./index.html",
