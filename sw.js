@@ -1,4 +1,4 @@
-const CACHE_NAME = "epohi-v1-2-cache";
+const CACHE_NAME = "epohi-v1-2-1-camera-cache";
 const APP_FILES = [
   "./",
   "./index.html",

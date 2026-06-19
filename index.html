@@ -9,8 +9,9 @@
   <meta name="apple-mobile-web-app-title" content="Эпохи">
   <meta name="format-detection" content="telephone=no">
   <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-  <title>Эпохи v1.2 — пошаговая стратегия</title>
+  <title>Эпохи v1.2.1 — пошаговая стратегия</title>
   <style>
     :root {
       --bg: #18231c;
@@ -26,7 +27,10 @@
       --danger: #9b5149;
       --line: rgba(255,255,255,.12);
       --shadow: 0 12px 34px rgba(0,0,0,.28);
-      --map-size: min(94vw, calc(100dvh - 318px), 520px);
+      --map-window-width: min(94vw, 430px);
+      --map-window-height: min(calc(100dvh - 318px), 480px);
+      --tile-size: 46px;
+      --tile-gap: 1px;
     }
 
     * {
@@ -184,36 +188,52 @@
 
     .map-zone {
       min-height: 0;
-      display: grid;
-      place-items: center;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
     }
 
     .map-shell {
       position: relative;
-      width: var(--map-size);
-      height: var(--map-size);
-      min-width: 286px;
-      min-height: 286px;
+      width: var(--map-window-width);
+      height: var(--map-window-height);
+      flex: 0 1 var(--map-window-height);
+      min-width: min(300px, 100%);
+      min-height: 0;
       max-width: 100%;
-      max-height: 100%;
+      max-height: calc(100% - 50px);
       padding: 5px;
       border-radius: 16px;
       background: #0e1711;
       box-shadow: var(--shadow), inset 0 0 0 1px rgba(255,255,255,.08);
+      overflow: hidden;
       touch-action: none;
+      cursor: grab;
+      contain: layout paint;
+    }
+
+    .map-shell.dragging {
+      cursor: grabbing;
     }
 
     .map {
-      width: 100%;
-      height: 100%;
+      position: absolute;
+      left: 5px;
+      top: 5px;
+      width: calc(var(--tile-size) * 12 + var(--tile-gap) * 11);
+      height: calc(var(--tile-size) * 12 + var(--tile-gap) * 11);
       display: grid;
-      grid-template-columns: repeat(12, 1fr);
-      grid-template-rows: repeat(12, 1fr);
-      gap: 1px;
-      overflow: hidden;
+      grid-template-columns: repeat(12, var(--tile-size));
+      grid-template-rows: repeat(12, var(--tile-size));
+      gap: var(--tile-gap);
+      overflow: visible;
       border-radius: 12px;
       background: rgba(255,255,255,.06);
       touch-action: none;
+      transform-origin: 0 0;
+      will-change: transform;
     }
 
     .tile {
@@ -226,7 +246,7 @@
       overflow: hidden;
       border-radius: 2px;
       color: #162019;
-      font-size: clamp(12px, calc(var(--map-size) / 23), 24px);
+      font-size: calc(var(--tile-size) * .46);
       line-height: 1;
       touch-action: none;
       transition: filter 80ms ease, transform 80ms ease, box-shadow 80ms ease;
@@ -265,7 +285,6 @@
 
     .piece, .feature, .improvement {
       position: absolute;
-      z-index: 4;
       display: grid;
       place-items: center;
       text-shadow: 0 1px 2px rgba(0,0,0,.65);
@@ -273,33 +292,85 @@
     }
 
     .piece {
-      inset: 0;
-      font-size: 1.02em;
-      transform: scale(1.05);
+      z-index: 12;
+      font-size: .74em;
+      border-radius: 50%;
+      border: 2px solid rgba(255,255,255,.9);
+      background: rgba(23,33,25,.9);
+      box-shadow: 0 2px 6px rgba(0,0,0,.45), inset 0 1px rgba(255,255,255,.18);
+      color: white;
     }
 
     .piece.city {
-      font-size: 1.12em;
-      filter: drop-shadow(0 1px 1px rgba(0,0,0,.75));
-    }
-
-    .piece.scout {
-      align-items: end;
-      justify-items: end;
-      padding: 1px;
-      font-size: .72em;
+      left: 5%;
+      top: 5%;
+      width: 58%;
+      height: 58%;
+      z-index: 13;
+      background: linear-gradient(#f4d585, #9f6f2d);
+      border-color: #fff2bd;
+      color: #26180a;
+      text-shadow: 0 1px rgba(255,255,255,.28);
     }
 
     .feature {
       top: 1px;
       right: 1px;
+      z-index: 4;
       font-size: .48em;
     }
 
     .improvement {
       left: 1px;
       bottom: 1px;
+      z-index: 5;
       font-size: .53em;
+    }
+
+    .map-controls {
+      width: min(100%, 254px);
+      height: 44px;
+      flex: 0 0 44px;
+      display: grid;
+      grid-template-columns: 44px minmax(82px, 1fr) 44px 44px;
+      gap: 6px;
+      align-items: center;
+      touch-action: manipulation;
+    }
+
+    .map-control-btn {
+      width: 44px;
+      height: 44px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border-radius: 10px;
+      background: rgba(239,229,199,.94);
+      border: 1px solid rgba(40,50,41,.24);
+      color: #243326;
+      font-size: 25px;
+      font-weight: 900;
+      line-height: 1;
+      box-shadow: 0 3px 10px rgba(0,0,0,.28), inset 0 1px rgba(255,255,255,.45);
+      touch-action: manipulation;
+    }
+
+    .map-control-btn.center {
+      font-size: 22px;
+    }
+
+    .map-control-value {
+      height: 44px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(239,229,199,.32);
+      border-radius: 10px;
+      background: rgba(16,24,18,.72);
+      color: #f7efd8;
+      font-size: 14px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      box-shadow: inset 0 1px rgba(255,255,255,.08);
     }
 
     .context {
@@ -769,7 +840,11 @@
     }
 
     @media (max-height: 700px) {
-      :root { --map-size: min(88vw, calc(100dvh - 298px), 430px); }
+      :root {
+        --map-window-width: min(92vw, 430px);
+        --map-window-height: min(calc(100dvh - 284px), 420px);
+        --tile-size: 44px;
+      }
       .app { gap: 5px; }
       .topbar { min-height: 37px; }
       .brand h1 { font-size: 27px; }
@@ -780,7 +855,11 @@
     }
 
     @media (max-width: 370px) {
-      :root { --map-size: min(95vw, calc(100dvh - 302px)); }
+      :root {
+        --map-window-width: min(95vw, 430px);
+        --map-window-height: min(calc(100dvh - 300px), 460px);
+        --tile-size: 44px;
+      }
       .turn-card { min-width: 76px; padding-inline: 7px; }
       .resource { padding-inline: 4px; gap: 3px; }
       .resource .icon { font-size: 16px; }
@@ -793,40 +872,89 @@
 
 
     .piece.unit {
-      align-items: end;
-      justify-items: end;
-      padding: 1px;
-      font-size: .72em;
+      right: 5%;
+      bottom: 5%;
+      width: 68%;
+      height: 68%;
+      z-index: 22;
+      font-size: .82em;
+      border-width: 3px;
+      text-shadow: 0 1px 2px rgba(0,0,0,.72);
+    }
+
+    .piece.unit-scout {
+      background: linear-gradient(#20d7bd, #0d8f7e);
+      border-color: #e9fffa;
+      color: #04231f;
+    }
+
+    .piece.unit-worker {
+      background: linear-gradient(#f2a64d, #cc6f1e);
+      border-color: #fff1d3;
+      color: #2a1603;
+    }
+
+    .piece.unit-warrior {
+      background: linear-gradient(#dc5a52, #9e2020);
+      border-color: #ffe6e2;
+      color: #fff;
+    }
+
+    .piece.unit-settler {
+      background: linear-gradient(#b582f0, #6e3aa8);
+      border-color: #f4e7ff;
+      color: #fff;
+    }
+
+    .piece.unit.is-selected {
+      animation: unitPulse 1200ms ease-in-out infinite;
+      box-shadow:
+        0 0 0 3px rgba(255,243,177,.95),
+        0 0 13px rgba(255,243,177,.78),
+        0 3px 8px rgba(0,0,0,.48),
+        inset 0 1px rgba(255,255,255,.22);
     }
 
     .piece.outpost {
-      align-items: start;
-      justify-items: start;
-      padding: 1px;
-      font-size: .72em;
+      left: 5%;
+      top: 5%;
+      width: 54%;
+      height: 54%;
+      z-index: 14;
+      background: linear-gradient(#efe5c7, #a98748);
+      border-color: #fff4cc;
+      color: #251b0d;
+      text-shadow: 0 1px rgba(255,255,255,.28);
     }
 
     .unit-count {
       position: absolute;
-      z-index: 7;
-      right: 0;
-      top: 0;
-      min-width: 12px;
-      height: 12px;
+      z-index: 24;
+      right: 1px;
+      top: 1px;
+      min-width: 16px;
+      height: 16px;
       display: grid;
       place-items: center;
       padding: 0 2px;
-      border-radius: 7px;
-      background: #26382c;
+      border-radius: 9px;
+      background: #101812;
+      border: 1px solid rgba(255,255,255,.8);
       color: #fff;
-      font-size: 7px;
+      font-size: 9px;
       font-weight: 900;
       pointer-events: none;
+      box-shadow: 0 1px 4px rgba(0,0,0,.35);
     }
 
     .tile.unit-active {
-      box-shadow: inset 0 0 0 2px #8fe0ff, 0 0 0 1px #26382c;
+      box-shadow: inset 0 0 0 3px #8fe0ff, 0 0 0 1px #26382c;
       filter: brightness(1.12);
+    }
+
+    @keyframes unitPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.12); }
     }
 
     .queue-box {
@@ -874,7 +1002,7 @@
     <header class="topbar">
       <div class="brand">
         <h1>Эпохи</h1>
-        <p id="subtitle">От племени к империи · v1.2</p>
+        <p id="subtitle">От племени к империи · v1.2.1</p>
       </div>
       <div class="turn-card">
         <small id="eraLabel">Племя</small>
@@ -890,8 +1018,14 @@
     </section>
 
     <section class="map-zone">
-      <div class="map-shell">
+      <div id="mapViewport" class="map-shell">
         <div id="map" class="map" aria-label="Карта мира"></div>
+      </div>
+      <div class="map-controls" aria-label="Масштаб и центрирование карты">
+        <button id="zoomOutBtn" class="map-control-btn" type="button" aria-label="Отдалить карту">−</button>
+        <output id="zoomValue" class="map-control-value" aria-live="polite">130%</output>
+        <button id="zoomInBtn" class="map-control-btn" type="button" aria-label="Приблизить карту">+</button>
+        <button id="centerMapBtn" class="map-control-btn center" type="button" aria-label="Центрировать на выбранном юните или столице">◎</button>
       </div>
     </section>
 
@@ -971,8 +1105,14 @@
 
   const MAP_SIZE = 12;
   const SAVE_KEY = "mika-epohi-v1-state";
+  const CAMERA_KEY = "mika-epohi-v12-camera";
   const TUTORIAL_KEY = "mika-epohi-v1-seen";
-  const UPDATE_KEY = "mika-epohi-v12-seen";
+  const UPDATE_KEY = "mika-epohi-v121-seen";
+  const CAMERA_MIN_SCALE = 0.8;
+  const CAMERA_MAX_SCALE = 2;
+  const CAMERA_DEFAULT_SCALE = 1.3;
+  const CAMERA_ZOOM_STEP = 1.18;
+  const CAMERA_TAP_SLOP = 7;
 
   const TERRAIN = {
     plains: { name: "Равнина", icon: "🌿", base: { food: 1, production: 0, gold: 0, science: 0 } },
@@ -1100,6 +1240,11 @@
   };
 
   const mapEl = document.getElementById("map");
+  const mapViewport = document.getElementById("mapViewport");
+  const zoomInBtn = document.getElementById("zoomInBtn");
+  const zoomOutBtn = document.getElementById("zoomOutBtn");
+  const centerMapBtn = document.getElementById("centerMapBtn");
+  const zoomValue = document.getElementById("zoomValue");
   const turnValue = document.getElementById("turnValue");
   const eraLabel = document.getElementById("eraLabel");
   const subtitle = document.getElementById("subtitle");
@@ -1129,6 +1274,14 @@
   let state = loadGame() || createNewGame();
   let selected = null;
   let selectedUnitId = state.units.length ? state.units[0].id : null;
+  let camera = loadCamera();
+  let cameraInitialized = !!camera;
+  if (!camera) camera = { x: 0, y: 0, scale: CAMERA_DEFAULT_SCALE };
+  let cameraSaveTimer = null;
+  let activePointers = new Map();
+  let gesture = null;
+  let touchSequenceHadPinch = false;
+  let suppressNextMapClick = false;
   let toastTimer = null;
 
   function emptyYield() {
@@ -1273,6 +1426,153 @@
 
   function saveGame() {
     safeSet(SAVE_KEY, JSON.stringify(state));
+  }
+
+  function clamp(value, min, max) {
+    return Math.min(max, Math.max(min, value));
+  }
+
+  function loadCamera() {
+    const raw = safeGet(CAMERA_KEY);
+    if (!raw) return null;
+    try {
+      const candidate = JSON.parse(raw);
+      if (!candidate || typeof candidate.x !== "number" ||
+          typeof candidate.y !== "number" || typeof candidate.scale !== "number") return null;
+      return {
+        x: candidate.x,
+        y: candidate.y,
+        scale: clamp(candidate.scale, CAMERA_MIN_SCALE, CAMERA_MAX_SCALE)
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function saveCamera() {
+    safeSet(CAMERA_KEY, JSON.stringify({
+      x: Math.round(camera.x),
+      y: Math.round(camera.y),
+      scale: Math.round(camera.scale * 1000) / 1000
+    }));
+  }
+
+  function scheduleCameraSave() {
+    clearTimeout(cameraSaveTimer);
+    cameraSaveTimer = setTimeout(saveCamera, 180);
+  }
+
+  function viewportMetrics() {
+    const shellStyle = getComputedStyle(mapViewport);
+    const padLeft = parseFloat(shellStyle.paddingLeft) || 0;
+    const padRight = parseFloat(shellStyle.paddingRight) || 0;
+    const padTop = parseFloat(shellStyle.paddingTop) || 0;
+    const padBottom = parseFloat(shellStyle.paddingBottom) || 0;
+    return {
+      padLeft: padLeft,
+      padTop: padTop,
+      width: Math.max(1, mapViewport.clientWidth - padLeft - padRight),
+      height: Math.max(1, mapViewport.clientHeight - padTop - padBottom)
+    };
+  }
+
+  function pointerPoint(event) {
+    const rect = mapViewport.getBoundingClientRect();
+    const viewport = viewportMetrics();
+    return {
+      x: event.clientX - rect.left - viewport.padLeft,
+      y: event.clientY - rect.top - viewport.padTop
+    };
+  }
+
+  function mapSize() {
+    return {
+      width: Math.max(1, mapEl.offsetWidth),
+      height: Math.max(1, mapEl.offsetHeight)
+    };
+  }
+
+  function clampCamera() {
+    camera.scale = clamp(camera.scale, CAMERA_MIN_SCALE, CAMERA_MAX_SCALE);
+    const viewport = viewportMetrics();
+    const size = mapSize();
+    const scaledWidth = size.width * camera.scale;
+    const scaledHeight = size.height * camera.scale;
+
+    if (scaledWidth <= viewport.width) {
+      camera.x = (viewport.width - scaledWidth) / 2;
+    } else {
+      camera.x = clamp(camera.x, viewport.width - scaledWidth, 0);
+    }
+
+    if (scaledHeight <= viewport.height) {
+      camera.y = (viewport.height - scaledHeight) / 2;
+    } else {
+      camera.y = clamp(camera.y, viewport.height - scaledHeight, 0);
+    }
+  }
+
+  function applyCamera(shouldSave) {
+    clampCamera();
+    mapEl.style.transform = "translate3d(" + camera.x + "px, " + camera.y + "px, 0) scale(" + camera.scale + ")";
+    zoomValue.value = String(Math.round(camera.scale * 100));
+    zoomValue.textContent = Math.round(camera.scale * 100) + "%";
+    if (shouldSave) scheduleCameraSave();
+  }
+
+  function tileCenter(x, y) {
+    const firstTile = mapEl.querySelector(".tile");
+    const mapStyle = getComputedStyle(mapEl);
+    const gap = parseFloat(mapStyle.columnGap) || 0;
+    const tileWidth = firstTile ? firstTile.offsetWidth : mapSize().width / MAP_SIZE;
+    const tileHeight = firstTile ? firstTile.offsetHeight : mapSize().height / MAP_SIZE;
+    return {
+      x: x * (tileWidth + gap) + tileWidth / 2,
+      y: y * (tileHeight + gap) + tileHeight / 2
+    };
+  }
+
+  function centerCameraOnTile(x, y, shouldSave) {
+    const viewport = viewportMetrics();
+    const center = tileCenter(x, y);
+    camera.x = viewport.width / 2 - center.x * camera.scale;
+    camera.y = viewport.height / 2 - center.y * camera.scale;
+    applyCamera(shouldSave);
+  }
+
+  function focusCameraTarget() {
+    const unit = getUnit(selectedUnitId);
+    if (unit) return { x: unit.x, y: unit.y };
+    return { x: state.city.x, y: state.city.y };
+  }
+
+  function centerCameraOnFocus(shouldSave) {
+    const target = focusCameraTarget();
+    centerCameraOnTile(target.x, target.y, shouldSave);
+  }
+
+  function setCameraScale(nextScale, originX, originY) {
+    const viewport = viewportMetrics();
+    const anchorX = originX == null ? viewport.width / 2 : originX;
+    const anchorY = originY == null ? viewport.height / 2 : originY;
+    const mapX = (anchorX - camera.x) / camera.scale;
+    const mapY = (anchorY - camera.y) / camera.scale;
+    camera.scale = clamp(nextScale, CAMERA_MIN_SCALE, CAMERA_MAX_SCALE);
+    camera.x = anchorX - mapX * camera.scale;
+    camera.y = anchorY - mapY * camera.scale;
+    applyCamera(true);
+  }
+
+  function initializeCamera(saveFocusedCamera) {
+    requestAnimationFrame(function () {
+      if (cameraInitialized) {
+        applyCamera(false);
+      } else {
+        centerCameraOnFocus(false);
+        cameraInitialized = true;
+        if (saveFocusedCamera) saveCamera();
+      }
+    });
   }
 
   function revealAround(targetState, x, y, radius) {
@@ -1468,7 +1768,7 @@
         if (tileUnits.length) {
           const shown = tileUnits.find(function (unit) { return unit.id === selectedUnitId; }) || tileUnits[0];
           const piece = document.createElement("span");
-          piece.className = "piece unit";
+          piece.className = "piece unit unit-" + shown.type + (shown.id === selectedUnitId ? " is-selected" : "");
           piece.textContent = UNIT_DEFS[shown.type].mapIcon;
           button.appendChild(piece);
           if (tileUnits.length > 1) {
@@ -2080,7 +2380,7 @@
     }).join("");
 
     wikiContent.innerHTML =
-      '<div class="section-title">Что изменилось в v1.2</div>' +
+      '<div class="section-title">Что изменилось в v1.2.1</div>' +
       '<div class="wiki-callout"><strong>Теперь юниты настоящие.</strong> Разведчик только исследует. Рабочий должен стоять на нужной клетке, чтобы построить улучшение. В городе можно производить второго разведчика, рабочего, воина и поселенца.</div>' +
       '<div class="section-title">Юниты и карта</div>' +
       '<div class="wiki-list">' +
@@ -2171,11 +2471,15 @@
     state = createNewGame();
     selected = null;
     selectedUnitId = state.units[0].id;
+    camera = { x: 0, y: 0, scale: CAMERA_DEFAULT_SCALE };
+    cameraInitialized = false;
+    saveCamera();
     closeModal("menuModal");
     closeModal("wikiModal");
     closeModal("victoryModal");
     showToast("Новый мир создан. Начни с рабочего или разведки.");
     render();
+    initializeCamera(true);
   }
 
   function showToast(text, duration) {
@@ -2187,9 +2491,110 @@
     }, duration || 2200);
   }
 
-  mapEl.addEventListener("click", function (event) {
-    const tileEl = event.target.closest(".tile");
-    if (!tileEl) return;
+  function pointerDistance(a, b) {
+    const dx = a.x - b.x;
+    const dy = a.y - b.y;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  function pointerMidpoint(a, b) {
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }
+
+  function beginGesture() {
+    const points = Array.from(activePointers.values());
+    mapViewport.classList.remove("dragging");
+
+    if (points.length === 1) {
+      gesture = {
+        mode: "pan",
+        startPoint: { x: points[0].x, y: points[0].y },
+        tapTile: points[0].startTile,
+        startX: camera.x,
+        startY: camera.y,
+        moved: false
+      };
+      return;
+    }
+
+    if (points.length >= 2) {
+      const first = points[0];
+      const second = points[1];
+      const midpoint = pointerMidpoint(first, second);
+      const distance = Math.max(1, pointerDistance(first, second));
+      gesture = {
+        mode: "pinch",
+        startMidpoint: midpoint,
+        startDistance: distance,
+        startScale: camera.scale,
+        startX: camera.x,
+        startY: camera.y,
+        anchorX: (midpoint.x - camera.x) / camera.scale,
+        anchorY: (midpoint.y - camera.y) / camera.scale,
+        moved: true
+      };
+      touchSequenceHadPinch = true;
+      suppressNextMapClick = true;
+      mapViewport.classList.add("dragging");
+    }
+  }
+
+  function updateGesture() {
+    if (!gesture) return;
+    const points = Array.from(activePointers.values());
+
+    if (gesture.mode === "pan" && points.length === 1) {
+      const point = points[0];
+      const dx = point.x - gesture.startPoint.x;
+      const dy = point.y - gesture.startPoint.y;
+      if (Math.abs(dx) > CAMERA_TAP_SLOP || Math.abs(dy) > CAMERA_TAP_SLOP) {
+        gesture.moved = true;
+        suppressNextMapClick = true;
+        mapViewport.classList.add("dragging");
+      }
+      camera.x = gesture.startX + dx;
+      camera.y = gesture.startY + dy;
+      applyCamera(gesture.moved);
+      return;
+    }
+
+    if (points.length >= 2) {
+      const first = points[0];
+      const second = points[1];
+      const midpoint = pointerMidpoint(first, second);
+      const distance = Math.max(1, pointerDistance(first, second));
+      camera.scale = clamp(gesture.startScale * distance / gesture.startDistance, CAMERA_MIN_SCALE, CAMERA_MAX_SCALE);
+      camera.x = midpoint.x - gesture.anchorX * camera.scale;
+      camera.y = midpoint.y - gesture.anchorY * camera.scale;
+      gesture.moved = true;
+      suppressNextMapClick = true;
+      mapViewport.classList.add("dragging");
+      applyCamera(true);
+    }
+  }
+
+  function finishPointer(event) {
+    const tapTile = !touchSequenceHadPinch && gesture && gesture.mode === "pan" && !gesture.moved && activePointers.size === 1
+      ? gesture.tapTile
+      : null;
+    activePointers.delete(event.pointerId);
+    if (gesture && gesture.moved) suppressNextMapClick = true;
+
+    if (activePointers.size) {
+      beginGesture();
+    } else {
+      gesture = null;
+      touchSequenceHadPinch = false;
+      setTimeout(function () { mapViewport.classList.remove("dragging"); }, 80);
+    }
+
+    if (tapTile) {
+      suppressNextMapClick = true;
+      handleTileClick(tapTile);
+    }
+  }
+
+  function handleTileClick(tileEl) {
     const x = Number(tileEl.dataset.x);
     const y = Number(tileEl.dataset.y);
     const active = getUnit(selectedUnitId);
@@ -2204,6 +2609,64 @@
     }
     renderMap();
     renderContext();
+  }
+
+  mapEl.addEventListener("click", function (event) {
+    if (suppressNextMapClick) {
+      suppressNextMapClick = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    const tileEl = event.target.closest(".tile");
+    if (!tileEl) return;
+    handleTileClick(tileEl);
+  });
+
+  mapViewport.addEventListener("pointerdown", function (event) {
+    event.preventDefault();
+    mapViewport.setPointerCapture(event.pointerId);
+    const point = pointerPoint(event);
+    point.startTile = event.target.closest(".tile");
+    if (!activePointers.size) touchSequenceHadPinch = false;
+    activePointers.set(event.pointerId, point);
+    beginGesture();
+  });
+
+  mapViewport.addEventListener("pointermove", function (event) {
+    if (!activePointers.has(event.pointerId)) return;
+    event.preventDefault();
+    const previous = activePointers.get(event.pointerId);
+    const point = pointerPoint(event);
+    point.startTile = previous.startTile;
+    activePointers.set(event.pointerId, point);
+    updateGesture();
+  });
+
+  mapViewport.addEventListener("pointerup", function (event) {
+    if (!activePointers.has(event.pointerId)) return;
+    event.preventDefault();
+    finishPointer(event);
+  });
+
+  mapViewport.addEventListener("pointercancel", function (event) {
+    finishPointer(event);
+  });
+
+  mapViewport.addEventListener("lostpointercapture", function (event) {
+    if (activePointers.has(event.pointerId)) finishPointer(event);
+  });
+
+  zoomInBtn.addEventListener("click", function () {
+    setCameraScale(camera.scale * CAMERA_ZOOM_STEP);
+  });
+
+  zoomOutBtn.addEventListener("click", function () {
+    setCameraScale(camera.scale / CAMERA_ZOOM_STEP);
+  });
+
+  centerMapBtn.addEventListener("click", function () {
+    centerCameraOnFocus(true);
   });
 
   cityBtn.addEventListener("click", openCity);
@@ -2225,10 +2688,20 @@
 
   document.addEventListener("gesturestart", function (event) { event.preventDefault(); }, { passive: false });
   window.addEventListener("contextmenu", function (event) { event.preventDefault(); });
-  document.addEventListener("visibilitychange", function () { if (document.hidden) saveGame(); });
-  window.addEventListener("pagehide", saveGame);
+  window.addEventListener("resize", function () { applyCamera(true); });
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+      saveGame();
+      saveCamera();
+    }
+  });
+  window.addEventListener("pagehide", function () {
+    saveGame();
+    saveCamera();
+  });
 
   render();
+  initializeCamera();
 
   if (!safeGet(TUTORIAL_KEY)) {
     safeSet(TUTORIAL_KEY, "1");
@@ -2240,7 +2713,7 @@
     safeSet(UPDATE_KEY, "1");
     setTimeout(function () {
       openWiki();
-      showToast("v1.2: очередь, рабочие и новые юниты.", 3000);
+      showToast("v1.2.1: крупная карта, удобное масштабирование и контрастные юниты.", 3000);
     }, 250);
   } else if (state.victory) {
     setTimeout(openVictory, 250);
