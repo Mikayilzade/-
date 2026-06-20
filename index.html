@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-  <title>Эпохи v1.3-alpha — пошаговая стратегия</title>
+  <title>Эпохи v1.3.1 — пошаговая стратегия</title>
   <style>
     :root {
       --bg: #18231c;
@@ -839,6 +839,36 @@
       line-height: 1.45;
     }
 
+
+    .is-hidden { display: none !important; }
+    .screen-root {
+      width: min(100%, 620px); height: 100%; margin: 0 auto; overflow: hidden;
+      display: flex; flex-direction: column; justify-content: center; touch-action: pan-y;
+    }
+    .screen-panel {
+      max-height: 100%; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+      padding: 18px 14px calc(18px + env(safe-area-inset-bottom)); border: 1px solid var(--line);
+      border-radius: 24px; background: linear-gradient(180deg, rgba(49,70,54,.98), rgba(24,35,28,.98));
+      box-shadow: var(--shadow), inset 0 1px rgba(255,255,255,.08);
+    }
+    .menu-title { margin: 5px 0 4px; font-family: Georgia, "Times New Roman", serif; font-size: clamp(46px, 15vw, 70px); line-height: .92; text-align: center; letter-spacing: 1px; }
+    .menu-version { margin: 0 0 18px; color: #b6c2b8; text-align: center; font-size: 12px; }
+    .menu-stack, .slot-list { display: grid; gap: 9px; }
+    .menu-primary { min-height: 50px; padding: 10px 12px; border-radius: 14px; background: var(--accent-2); color: #fff; font-weight: 900; box-shadow: inset 0 1px rgba(255,255,255,.13); }
+    .menu-primary.secondary { background: #75694f; } .menu-primary.danger { background: var(--danger); }
+    .menu-primary.ghost { background: rgba(255,255,255,.08); border: 1px solid var(--line); }
+    .menu-hint, .screen-note { margin: 8px 0 14px; padding: 10px 11px; border-radius: 13px; background: rgba(255,255,255,.08); color: #d8dfd3; font-size: 12px; line-height: 1.35; }
+    .screen-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }
+    .screen-head h2 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 31px; }
+    .screen-form { display: grid; gap: 10px; }
+    .field-label { display: grid; gap: 6px; color: #d8dfd3; font-size: 12px; font-weight: 800; }
+    .field-label input, .field-label select { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid rgba(255,255,255,.16); border-radius: 11px; background: #efe5c7; color: var(--ink); font: inherit; }
+    .slot-card { display: grid; gap: 7px; padding: 11px; border-radius: 14px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.11); }
+    .slot-card strong { font-size: 15px; } .slot-card small { color: #c1cbbc; font-size: 11px; line-height: 1.35; }
+    .slot-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .slot-actions .menu-primary { min-height: 39px; font-size: 12px; padding: 7px; border-radius: 10px; }
+    .save-status { margin-top: 8px; color: #b6c2b8; font-size: 11px; text-align: right; }
+
     @media (max-height: 700px) {
       :root {
         --map-window-width: min(92vw, 430px);
@@ -1008,11 +1038,12 @@
   </style>
 </head>
 <body>
-  <main class="app">
+  <section id="screenRoot" class="screen-root" aria-live="polite"></section>
+  <main id="gameApp" class="app is-hidden">
     <header class="topbar">
       <div class="brand">
         <h1>Эпохи</h1>
-        <p id="subtitle">От племени к империи · v1.3-alpha</p>
+        <p id="subtitle">От племени к империи · v1.3.1</p>
       </div>
       <div class="turn-card">
         <small id="eraLabel">Племя</small>
@@ -1115,10 +1146,17 @@
 
   const DEFAULT_MAP_SIZE = 28;
   const MAP_SIZES = { small: 20, normal: 28, large: 36 };
+  const GAME_VERSION = "v1.3.1";
+  const SAVE_SCHEMA_VERSION = 4;
   const SAVE_KEY = "mika-epohi-v1-state";
   const CAMERA_KEY = "mika-epohi-v12-camera";
   const TUTORIAL_KEY = "mika-epohi-v1-seen";
-  const UPDATE_KEY = "mika-epohi-v13-alpha-seen";
+  const UPDATE_KEY = "mika-epohi-v131-menu-saves-seen";
+  const DB_NAME = "epohi-game-db";
+  const DB_STORE = "saves";
+  const MIGRATION_KEY = "mika-epohi-v131-migrated";
+  const ACTIVE_SLOT_KEY = "mika-epohi-v131-active-slot";
+  const SLOT_IDS = ["slot-1", "slot-2", "slot-3", "slot-4", "slot-5"];
   const CAMERA_MIN_SCALE = 0.8;
   const CAMERA_MAX_SCALE = 2;
   const CAMERA_DEFAULT_SCALE = 1.3;
@@ -1265,6 +1303,8 @@
     }
   };
 
+  const screenRoot = document.getElementById("screenRoot");
+  const gameApp = document.getElementById("gameApp");
   const mapEl = document.getElementById("map");
   const mapViewport = document.getElementById("mapViewport");
   const zoomInBtn = document.getElementById("zoomInBtn");
@@ -1297,9 +1337,16 @@
   const wikiContent = document.getElementById("wikiContent");
   const victoryContent = document.getElementById("victoryContent");
 
-  let state = loadGame() || createNewGame();
+  let state = null;
+  let currentScreen = "main-menu";
+  let activeSlotId = safeGet(ACTIVE_SLOT_KEY) || null;
+  let lastAutosaveMeta = null;
+  let storageAvailable = true;
+  let storageWarning = "";
+  let saveStatus = "Сохранено";
+  let saveQueue = Promise.resolve();
   let selected = null;
-  let selectedUnitId = state.units.length ? state.units[0].id : null;
+  let selectedUnitId = null;
   let camera = loadCamera();
   let cameraInitialized = !!camera;
   if (!camera) camera = { x: 0, y: 0, scale: CAMERA_DEFAULT_SCALE };
@@ -1472,14 +1519,137 @@
     try { localStorage.setItem(key, value); return true; } catch (error) { return false; }
   }
 
+  function escapeHtml(value) {
+    return String(value == null ? "" : value).replace(/[&<>"]/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch];
+    });
+  }
+
+  function slotLabel(id) {
+    if (id === "autosave") return "Автосохранение";
+    const n = SLOT_IDS.indexOf(id) + 1;
+    return n ? "Слот " + n : "Без слота";
+  }
+
+  function formatDate(value) {
+    if (!value) return "—";
+    try { return new Date(value).toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", year:"2-digit", hour:"2-digit", minute:"2-digit" }); } catch (e) { return "—"; }
+  }
+
+  function cloneState(source) { return JSON.parse(JSON.stringify(source)); }
+
+  function validateSaveState(candidate) {
+    const migrated = migrateState(candidate);
+    if (!migrated) return null;
+    const size = mapSizeCells(migrated);
+    if (!size || !Array.isArray(migrated.map) || migrated.map.length !== size) return null;
+    if (!migrated.map.every(function (row) { return Array.isArray(row) && row.length === size; })) return null;
+    if (typeof migrated.turn !== "number" || migrated.turn < 1) return null;
+    if (!migrated.resources || ["food","production","gold","science"].some(function (k) { return typeof migrated.resources[k] !== "number"; })) return null;
+    if (!Array.isArray(migrated.units)) return null;
+    return migrated;
+  }
+
+  function metadataFor(id, gameState, name, createdAt) {
+    const now = new Date().toISOString();
+    return {
+      id: id,
+      name: name || (gameState && gameState.partyName) || "Новый мир",
+      turn: gameState ? gameState.turn : 1,
+      mapSize: gameState ? mapSizeCells(gameState) : DEFAULT_MAP_SIZE,
+      createdAt: createdAt || now,
+      updatedAt: now,
+      gameVersion: GAME_VERSION,
+      schemaVersion: SAVE_SCHEMA_VERSION,
+      sourceSlotId: id === "autosave" ? (activeSlotId || null) : id,
+      status: gameState && gameState.victory ? "victory" : "active"
+    };
+  }
+
+  function openDb() {
+    return new Promise(function (resolve, reject) {
+      if (!window.indexedDB) { reject(new Error("IndexedDB недоступна")); return; }
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = function () {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: "id" });
+      };
+      request.onsuccess = function () { resolve(request.result); };
+      request.onerror = function () { reject(request.error || new Error("Ошибка IndexedDB")); };
+    });
+  }
+
+  function dbTx(mode, worker) {
+    return openDb().then(function (db) {
+      return new Promise(function (resolve, reject) {
+        const tx = db.transaction(DB_STORE, mode);
+        const store = tx.objectStore(DB_STORE);
+        let result;
+        tx.oncomplete = function () { db.close(); resolve(result); };
+        tx.onerror = function () { db.close(); reject(tx.error || new Error("Ошибка хранилища")); };
+        result = worker(store);
+      });
+    });
+  }
+
+  function getSaveRecord(id) {
+    if (!storageAvailable) {
+      const old = id === "autosave" ? loadGame() : null;
+      return Promise.resolve(old ? { id: "autosave", metadata: metadataFor("autosave", old, old.partyName || "Старая партия", null), gameState: old, schemaVersion: SAVE_SCHEMA_VERSION, updatedAt: new Date().toISOString() } : null);
+    }
+    return dbTx("readonly", function (store) { return requestPromise(store.get(id)); });
+  }
+  function requestPromise(req) {
+    return new Promise(function (resolve, reject) { req.onsuccess = function(){ resolve(req.result || null); }; req.onerror = function(){ reject(req.error); }; });
+  }
+  function putSaveRecord(id, gameState, name, sourceSlotId) {
+    const valid = validateSaveState(cloneState(gameState));
+    if (!valid) return Promise.reject(new Error("Состояние повреждено и не сохранено"));
+    valid.partyName = name || valid.partyName || "Новый мир";
+    return getSaveRecord(id).then(function (previous) {
+      const meta = metadataFor(id, valid, valid.partyName, previous && previous.metadata && previous.metadata.createdAt);
+      if (sourceSlotId) meta.sourceSlotId = sourceSlotId;
+      const record = { id: id, metadata: meta, gameState: valid, schemaVersion: SAVE_SCHEMA_VERSION, updatedAt: meta.updatedAt };
+      return dbTx("readwrite", function (store) { store.put(record); }).then(function () { return record; });
+    });
+  }
+  function deleteSaveRecord(id) { return dbTx("readwrite", function (store) { store.delete(id); }); }
+  function getSaveMetas() {
+    if (!storageAvailable) return Promise.resolve([]);
+    return dbTx("readonly", function (store) { return requestPromise(store.getAll()); }).then(function (records) {
+      return (records || []).map(function (r) { return r.metadata; });
+    });
+  }
+
   function loadGame() {
     const raw = safeGet(SAVE_KEY);
     if (!raw) return null;
     try { return migrateState(JSON.parse(raw)); } catch (error) { return null; }
   }
 
+  function setSaveStatus(text) { saveStatus = text; renderTop(); }
+  function queueSave(id, sourceState, name, sourceSlotId) {
+    if (!sourceState) return Promise.resolve(null);
+    if (!storageAvailable) { safeSet(SAVE_KEY, JSON.stringify(sourceState)); setSaveStatus("Сохранено"); return Promise.resolve({ id: id, metadata: metadataFor(id, sourceState, name, null), gameState: sourceState }); }
+    setSaveStatus("Сохранение…");
+    saveQueue = saveQueue.catch(function(){}).then(function () {
+      return putSaveRecord(id, sourceState, name, sourceSlotId).then(function (record) {
+        if (id === "autosave") lastAutosaveMeta = record.metadata;
+        setSaveStatus("Сохранено");
+        return record;
+      });
+    }).catch(function (error) {
+      setSaveStatus("Ошибка сохранения"); showToast("Не удалось сохранить: " + error.message, 3200); throw error;
+    });
+    return saveQueue;
+  }
   function saveGame() {
+    if (!state) return Promise.resolve();
     safeSet(SAVE_KEY, JSON.stringify(state));
+    const target = activeSlotId || "autosave";
+    return queueSave(target, cloneState(state), state.partyName, activeSlotId).then(function () {
+      if (target !== "autosave") return queueSave("autosave", cloneState(state), state.partyName, target);
+    });
   }
 
   function clamp(value, min, max) {
@@ -2386,6 +2556,7 @@
     if (barbarianText) message += barbarianText;
     showToast(message, 3600);
     render();
+    saveGame().catch(function(){});
     endTurnBtn.disabled = false;
     if (completedProject && completedProject.victory) openVictory();
   }
@@ -2516,7 +2687,8 @@
   }
 
   function openWiki() {
-    const currentNeed = growthNeed(state.city.population);
+    const wikiState = state || createNewGame(DEFAULT_MAP_SIZE);
+    const currentNeed = growthNeed(wikiState.city.population);
     const resources = [
       wikiRow("🍞 Еда", "Копится между ходами. При достижении порога столица автоматически получает +1 население. Сейчас для роста нужно " + currentNeed + "."),
       wikiRow("🔨 Производство", "Если очередь пуста, производство копится в запасе. Если выбран городской проект, весь доход 🔨 идёт в его шкалу. Запас можно вручную вложить в проект или потратить рабочим на улучшение клетки."),
@@ -2567,8 +2739,8 @@
     }).join("");
 
     wikiContent.innerHTML =
-      '<div class="section-title">Что изменилось в v1.3-alpha</div>' +
-      '<div class="wiki-callout"><strong>Большой мир, древние находки, варвары и первые сражения.</strong> Новые партии используют карту 28×28, а в меню новой игры можно выбрать 20×20, 28×28 или 36×36.</div>' +
+      '<div class="section-title">Что изменилось в v1.3.1</div>' +
+      '<div class="wiki-callout"><strong>Главное меню, пять слотов сохранения и безопасное автосохранение.</strong> Новые партии используют карту 28×28, а в меню новой игры можно выбрать 20×20, 28×28 или 36×36.</div>' +
       '<div class="section-title">Юниты и карта</div>' +
       '<div class="wiki-list">' +
         wikiRow("Выбор юнита", "Нажми клетку с юнитом. Голубая рамка показывает активного юнита. Затем нажми соседнюю клетку и кнопку «Идти». Если юнитов несколько, используй «Другой юнит».") +
@@ -2599,6 +2771,97 @@
   }
 
 
+  function setScreen(name) {
+    currentScreen = name;
+    Array.from(document.querySelectorAll(".modal.show")).forEach(function (m) { m.classList.remove("show"); });
+    if (name === "playing") { screenRoot.classList.add("is-hidden"); gameApp.classList.remove("is-hidden"); }
+    else { gameApp.classList.add("is-hidden"); screenRoot.classList.remove("is-hidden"); }
+    history.replaceState({ screen: name }, "", location.pathname + location.search + "#" + name);
+  }
+  function renderScreen(html) { screenRoot.innerHTML = '<div class="screen-panel">' + html + '</div>'; }
+  function startPlaying(loadedState, slotId) {
+    const valid = validateSaveState(loadedState);
+    if (!valid) { showToast("Не удалось загрузить сохранение. Данные не были удалены", 3600); return; }
+    state = valid; activeSlotId = slotId || activeSlotId; if (activeSlotId) safeSet(ACTIVE_SLOT_KEY, activeSlotId);
+    selected = null; selectedUnitId = state.units.length ? state.units[0].id : null;
+    camera = loadCamera() || { x: 0, y: 0, scale: CAMERA_DEFAULT_SCALE }; cameraInitialized = !!loadCamera();
+    setScreen("playing"); render(); initializeCamera(!cameraInitialized);
+    queueSave("autosave", cloneState(state), state.partyName, activeSlotId).catch(function(){});
+  }
+  function metaLine(meta) { return escapeHtml(meta.name) + " · ход " + meta.turn + " · " + meta.mapSize + "×" + meta.mapSize + " · " + formatDate(meta.updatedAt); }
+  function openMainMenu() {
+    setScreen("main-menu");
+    getSaveRecord("autosave").then(function (auto) {
+      lastAutosaveMeta = auto && auto.metadata;
+      renderScreen('<h1 class="menu-title">ЭПОХИ</h1><p class="menu-version">v1.3.1</p>' +
+        (storageWarning ? '<div class="screen-note">' + escapeHtml(storageWarning) + '</div>' : '') +
+        '<div class="menu-stack">' +
+        '<button id="continueBtn" class="menu-primary" ' + (!auto ? 'disabled' : '') + '>Продолжить</button>' +
+        '<div class="menu-hint">' + (auto ? metaLine(auto.metadata) : 'Автосохранения пока нет.') + '</div>' +
+        '<button id="newGameScreenBtn" class="menu-primary">Новая игра</button>' +
+        '<button id="loadGameScreenBtn" class="menu-primary secondary">Загрузить игру</button>' +
+        '<button id="wikiScreenBtn" class="menu-primary secondary">Вики</button>' +
+        '<button id="settingsScreenBtn" class="menu-primary ghost">Настройки</button></div>');
+      const c = document.getElementById("continueBtn"); if (c) c.onclick = function(){ startPlaying(auto.gameState, auto.metadata.sourceSlotId); };
+      document.getElementById("newGameScreenBtn").onclick = openNewGameScreen;
+      document.getElementById("loadGameScreenBtn").onclick = openLoadGameScreen;
+      document.getElementById("wikiScreenBtn").onclick = function(){ setScreen("wiki"); gameApp.classList.add("is-hidden"); openWiki(); document.querySelector('#wikiModal .close-btn').onclick = function(){ closeModal('wikiModal'); openMainMenu(); }; };
+      document.getElementById("settingsScreenBtn").onclick = openSettingsScreen;
+    }).catch(function(){ renderScreen('<h1 class="menu-title">ЭПОХИ</h1><div class="screen-note">Не удалось открыть IndexedDB. Доступен ограниченный режим одного старого сохранения.</div><button id="fallbackBtn" class="menu-primary">Открыть старую партию</button>'); document.getElementById('fallbackBtn').onclick=function(){ const old=loadGame(); if(old) startPlaying(old,null); }; });
+  }
+  function openNewGameScreen() {
+    setScreen("new-game");
+    getSaveMetas().then(function (metas) {
+      const used = {}; metas.forEach(function (m) { used[m.id] = m; });
+      const defName = "Новый мир " + (SLOT_IDS.filter(function(id){return used[id];}).length + 1);
+      renderScreen('<div class="screen-head"><h2>Новая игра</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="screen-form">' +
+        '<label class="field-label">Название партии<input id="partyName" value="' + defName + '"></label>' +
+        '<label class="field-label">Размер карты<select id="partySize"><option value="small">маленькая — 20×20</option><option value="normal" selected>обычная — 28×28</option><option value="large">большая — 36×36</option></select></label>' +
+        '<label class="field-label">Слот сохранения<select id="partySlot">' + SLOT_IDS.map(function(id){ return '<option value="'+id+'">'+slotLabel(id)+(used[id]?' — занято':' — свободно')+'</option>'; }).join('') + '</select></label>' +
+        '<button id="createParty" class="menu-primary">Создать мир</button></div>');
+      document.getElementById("backMain").onclick = openMainMenu;
+      document.getElementById("createParty").onclick = function(){
+        const slot = document.getElementById("partySlot").value;
+        if (used[slot] && !window.confirm("Перезаписать " + slotLabel(slot) + "?")) return;
+        const size = MAP_SIZES[document.getElementById("partySize").value] || DEFAULT_MAP_SIZE;
+        const ns = createNewGame(size); ns.partyName = document.getElementById("partyName").value.trim() || defName;
+        activeSlotId = slot; safeSet(ACTIVE_SLOT_KEY, slot); state = ns;
+        queueSave(slot, cloneState(ns), ns.partyName, slot).then(function(){ return queueSave("autosave", cloneState(ns), ns.partyName, slot); }).then(function(){ startPlaying(ns, slot); });
+      };
+    });
+  }
+  function openLoadGameScreen() {
+    setScreen("load-game");
+    getSaveMetas().then(function (metas) {
+      const by = {}; metas.forEach(function(m){ by[m.id]=m; });
+      renderScreen('<div class="screen-head"><h2>Загрузка</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="slot-list">' + SLOT_IDS.map(function(id){ const m=by[id]; return '<article class="slot-card"><strong>'+slotLabel(id)+'</strong><small>'+(m? metaLine(m)+' · '+m.gameVersion : 'Пустой слот')+'</small><div class="slot-actions">'+(m?'<button data-load="'+id+'" class="menu-primary">Загрузить</button><button data-rename="'+id+'" class="menu-primary secondary">Переименовать</button><button data-overwrite="'+id+'" class="menu-primary secondary">Перезаписать</button><button data-delete="'+id+'" class="menu-primary danger">Удалить</button>':'<button data-copy="'+id+'" class="menu-primary">Сохранить сюда</button>')+'</div></article>'; }).join('') + '</div>');
+      document.getElementById("backMain").onclick = openMainMenu;
+      screenRoot.querySelectorAll('[data-load]').forEach(function(b){ b.onclick=function(){ getSaveRecord(b.dataset.load).then(function(r){ if(!r||!validateSaveState(r.gameState)) return showToast("Не удалось загрузить сохранение. Данные не были удалены",3600); startPlaying(r.gameState,b.dataset.load); });}; });
+      screenRoot.querySelectorAll('[data-rename]').forEach(function(b){ b.onclick=function(){ getSaveRecord(b.dataset.rename).then(function(r){ const n=window.prompt('Новое название партии', r.metadata.name); if(!n) return; r.metadata.name=n; r.gameState.partyName=n; r.updatedAt=new Date().toISOString(); return dbTx('readwrite', function(store){ store.put(r); }).then(openLoadGameScreen); });}; });
+      screenRoot.querySelectorAll('[data-delete]').forEach(function(b){ b.onclick=function(){ if(window.confirm('Удалить сохранение?') && window.confirm('Точно удалить '+slotLabel(b.dataset.delete)+'?')) deleteSaveRecord(b.dataset.delete).then(openLoadGameScreen); }; });
+      screenRoot.querySelectorAll('[data-overwrite]').forEach(function(b){ b.onclick=function(){ if(!state) return showToast('Нет текущей партии для перезаписи'); if(window.confirm('Перезаписать '+slotLabel(b.dataset.overwrite)+' текущей партией?')) { activeSlotId=b.dataset.overwrite; safeSet(ACTIVE_SLOT_KEY, activeSlotId); saveGame().then(openLoadGameScreen); } }; });
+      screenRoot.querySelectorAll('[data-copy]').forEach(function(b){ b.onclick=function(){ if(!state) return showToast('Нет текущей партии для сохранения'); activeSlotId=b.dataset.copy; safeSet(ACTIVE_SLOT_KEY, activeSlotId); saveGame().then(openLoadGameScreen); }; });
+    });
+  }
+  function openSettingsScreen() {
+    setScreen("settings");
+    getSaveMetas().then(function(metas){
+      const occupied = metas.filter(function(m){ return SLOT_IDS.indexOf(m.id)!==-1; }).length;
+      const approx = Math.round((JSON.stringify(metas).length + (safeGet(SAVE_KEY)||'').length) / 1024);
+      renderScreen('<div class="screen-head"><h2>Настройки</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="menu-stack"><div class="screen-note">IndexedDB: '+(storageAvailable?'доступна':'недоступна')+'<br>Занято слотов: '+occupied+'/5<br>Примерный размер списка: '+approx+' КБ</div><label class="field-label"><input id="soundToggle" type="checkbox"> Звук (в игре пока нет звуковых эффектов)</label><button id="deleteAll" class="menu-primary danger">Удалить все сохранения</button></div>');
+      document.getElementById('backMain').onclick=openMainMenu;
+      document.getElementById('deleteAll').onclick=function(){ if(window.confirm('Удалить все новые сохранения?') && window.confirm('Это действие нельзя отменить. Удалить?')) Promise.all(SLOT_IDS.concat(['autosave']).map(deleteSaveRecord)).then(openMainMenu); };
+    });
+  }
+  function migrateOldSaveIfNeeded() {
+    if (safeGet(MIGRATION_KEY)) return Promise.resolve();
+    const old = loadGame(); if (!old) return Promise.resolve();
+    return getSaveRecord('slot-1').then(function(existing){ if(existing) { safeSet(MIGRATION_KEY,'1'); return; }
+      old.partyName = old.partyName || 'Старая партия'; activeSlotId='slot-1'; safeSet(ACTIVE_SLOT_KEY,'slot-1');
+      return putSaveRecord('slot-1', old, old.partyName, 'slot-1').then(function(){ return putSaveRecord('autosave', old, old.partyName, 'slot-1'); }).then(function(){ return getSaveRecord('slot-1'); }).then(function(check){ if(!check) throw new Error('Проверка миграции не прошла'); safeSet(MIGRATION_KEY,'1'); });
+    }).catch(function(error){ showToast('Миграция старого сохранения не удалась. Старые данные не изменены.',4200); });
+  }
+
   function openArtifacts() {
     const list = state.artifacts.length ? state.artifacts.map(function (a) { return '<div class="chip" style="width:100%">✦ ' + a.name + ': ' + a.text + '</div>'; }).join("") : '<div class="inline-note">Артефакты пока не найдены.</div>';
     menuContent.innerHTML = '<div class="section-title">Артефакты</div><div class="built-list">' + list + '</div><div class="menu-actions" style="margin-top:12px"><button id="backMenu" class="wide-btn">Назад</button></div>';
@@ -2619,7 +2882,7 @@
         '<strong>3.</strong> Рабочим встань на клетку внутри территории и построй улучшение.<br>' +
         '<strong>4.</strong> Исследуй технологии, расширяйся форпостами и заверши дворец.' +
       '</div>' +
-      '<div class="section-title">Сохранение</div><div class="inline-note">' + saved + '</div>' +
+      '<div class="section-title">Партия</div><div class="inline-note">' + escapeHtml(state.partyName || 'Новый мир') + ' · ' + slotLabel(activeSlotId) + '<br>' + saveStatus + '</div>' +
       '<div class="section-title">Последние события</div><div class="built-list">' + history + '</div>' +
       '<div class="section-title">Новый мир</div>' +
       '<label class="inline-note" style="display:block">Размер карты: <select id="newMapSize" style="width:100%;margin-top:6px;padding:8px;border-radius:8px"><option value="small">маленькая — 20×20</option><option value="normal" selected>обычная — 28×28</option><option value="large">большая — 36×36</option></select></label>' +
@@ -2627,6 +2890,9 @@
       '<div class="menu-actions">' +
         '<button id="artifactsBtn" class="wide-btn secondary">✦ Артефакты</button>' +
         '<button id="wikiBtn" class="wide-btn secondary">📖 Вики: что на что влияет</button>' +
+        '<button id="saveNowBtn" class="wide-btn">Сохранить</button>' +
+        '<button id="saveAsBtn" class="wide-btn secondary">Сохранить как…</button>' +
+        '<button id="toMainBtn" class="wide-btn secondary">В главное меню</button>' +
         '<button id="closeMenuWide" class="wide-btn">Продолжить</button>' +
         '<button id="newGameBtn" class="wide-btn danger">Начать новый мир</button>' +
       '</div>';
@@ -2636,8 +2902,11 @@
       closeModal("menuModal");
       openWiki();
     });
+    document.getElementById("saveNowBtn").addEventListener("click", function(){ if (!activeSlotId) return openLoadGameScreen(); saveGame().then(function(){ showToast("Партия сохранена"); }); });
+    document.getElementById("saveAsBtn").addEventListener("click", function(){ closeModal("menuModal"); openLoadGameScreen(); });
+    document.getElementById("toMainBtn").addEventListener("click", function(){ saveGame().finally(openMainMenu); });
     document.getElementById("closeMenuWide").addEventListener("click", function () { closeModal("menuModal"); });
-    document.getElementById("newGameBtn").addEventListener("click", newGameWithConfirmation);
+    document.getElementById("newGameBtn").addEventListener("click", function(){ closeModal("menuModal"); openNewGameScreen(); });
     openModal("menuModal");
   }
 
@@ -2896,24 +3165,10 @@
     saveCamera();
   });
 
-  render();
-  initializeCamera();
-
-  if (!safeGet(TUTORIAL_KEY)) {
-    safeSet(TUTORIAL_KEY, "1");
-    setTimeout(function () {
-      openMenu();
-      showToast("Добро пожаловать в «Эпохи»!");
-    }, 250);
-  } else if (!safeGet(UPDATE_KEY)) {
-    safeSet(UPDATE_KEY, "1");
-    setTimeout(function () {
-      openWiki();
-      showToast("v1.3-alpha: большой мир, древние находки, варвары и первые сражения", 3000);
-    }, 250);
-  } else if (state.victory) {
-    setTimeout(openVictory, 250);
-  }
+  openDb().then(function(db){ db.close(); storageAvailable = true; return migrateOldSaveIfNeeded(); }).catch(function(error){ storageAvailable = false; storageWarning = "IndexedDB недоступна: " + error.message + ". Пять слотов отключены, старое localStorage-сохранение не изменяется."; }).finally(function(){
+    openMainMenu();
+    if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.3.1: главное меню, пять слотов сохранения и безопасное автосохранение", 3600); }, 350); }
+  });
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     window.addEventListener("load", function () {
