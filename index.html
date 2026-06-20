@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-  <title>Эпохи v1.3.1 — пошаговая стратегия</title>
+  <title>Эпохи v1.3.2 — пошаговая стратегия</title>
   <style>
     :root {
       --bg: #18231c;
@@ -1043,7 +1043,7 @@
     <header class="topbar">
       <div class="brand">
         <h1>Эпохи</h1>
-        <p id="subtitle">От племени к империи · v1.3.1</p>
+        <p id="subtitle">От племени к империи · v1.3.2</p>
       </div>
       <div class="turn-card">
         <small id="eraLabel">Племя</small>
@@ -1146,17 +1146,22 @@
 
   const DEFAULT_MAP_SIZE = 28;
   const MAP_SIZES = { small: 20, normal: 28, large: 36 };
-  const GAME_VERSION = "v1.3.1";
+  const GAME_VERSION = "v1.3.2";
   const SAVE_SCHEMA_VERSION = 4;
   const SAVE_KEY = "mika-epohi-v1-state";
   const CAMERA_KEY = "mika-epohi-v12-camera";
   const TUTORIAL_KEY = "mika-epohi-v1-seen";
-  const UPDATE_KEY = "mika-epohi-v131-menu-saves-seen";
+  const UPDATE_KEY = "mika-epohi-v132-campaign-saves-seen";
   const DB_NAME = "epohi-game-db";
-  const DB_STORE = "saves";
-  const MIGRATION_KEY = "mika-epohi-v131-migrated";
-  const ACTIVE_SLOT_KEY = "mika-epohi-v131-active-slot";
-  const SLOT_IDS = ["slot-1", "slot-2", "slot-3", "slot-4", "slot-5"];
+  const CAMPAIGN_STORE = "campaigns";
+  const SAVE_STORE = "saves";
+  const LEGACY_DB_STORE = "saves";
+  const MIGRATION_KEY = "mika-epohi-v132-campaign-migrated";
+  const ACTIVE_CAMPAIGN_KEY = "mika-epohi-v132-active-campaign";
+  const ACTIVE_SAVE_KEY = "mika-epohi-v132-active-save";
+  const LEGACY_ACTIVE_SLOT_KEY = "mika-epohi-v131-active-slot";
+  const MANUAL_SAVE_IDS = ["manual-1", "manual-2", "manual-3"];
+  const AUTOSAVE_IDS = ["autosave-1", "autosave-2", "autosave-3"];
   const CAMERA_MIN_SCALE = 0.8;
   const CAMERA_MAX_SCALE = 2;
   const CAMERA_DEFAULT_SCALE = 1.3;
@@ -1339,7 +1344,10 @@
 
   let state = null;
   let currentScreen = "main-menu";
-  let activeSlotId = safeGet(ACTIVE_SLOT_KEY) || null;
+  let activeCampaignId = safeGet(ACTIVE_CAMPAIGN_KEY) || null;
+  let activeSaveId = safeGet(ACTIVE_SAVE_KEY) || null;
+  let loadedSaveId = activeSaveId;
+  let loadedSaveTurn = null;
   let lastAutosaveMeta = null;
   let storageAvailable = true;
   let storageWarning = "";
@@ -1525,10 +1533,17 @@
     });
   }
 
+  function saveTypeLabel(type) {
+    return { manual: "Ручное", autosave: "Авто", quicksave: "Быстрое" }[type] || type || "Сохранение";
+  }
+
   function slotLabel(id) {
-    if (id === "autosave") return "Автосохранение";
-    const n = SLOT_IDS.indexOf(id) + 1;
-    return n ? "Слот " + n : "Без слота";
+    if (id === "quicksave") return "Быстрое сохранение";
+    const manual = MANUAL_SAVE_IDS.indexOf(id) + 1;
+    if (manual) return "Ручное " + manual;
+    const auto = AUTOSAVE_IDS.indexOf(id) + 1;
+    if (auto) return "Автосохранение " + auto;
+    return "Сохранение";
   }
 
   function formatDate(value) {
@@ -1536,6 +1551,7 @@
     try { return new Date(value).toLocaleString("ru-RU", { day:"2-digit", month:"2-digit", year:"2-digit", hour:"2-digit", minute:"2-digit" }); } catch (e) { return "—"; }
   }
 
+  function makeId(prefix) { return prefix + "-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8); }
   function cloneState(source) { return JSON.parse(JSON.stringify(source)); }
 
   function validateSaveState(candidate) {
@@ -1550,108 +1566,91 @@
     return migrated;
   }
 
-  function metadataFor(id, gameState, name, createdAt) {
+  function campaignFromState(gameState, name, id, createdAt) {
     const now = new Date().toISOString();
-    return {
-      id: id,
-      name: name || (gameState && gameState.partyName) || "Новый мир",
-      turn: gameState ? gameState.turn : 1,
-      mapSize: gameState ? mapSizeCells(gameState) : DEFAULT_MAP_SIZE,
-      createdAt: createdAt || now,
-      updatedAt: now,
-      gameVersion: GAME_VERSION,
-      schemaVersion: SAVE_SCHEMA_VERSION,
-      sourceSlotId: id === "autosave" ? (activeSlotId || null) : id,
-      status: gameState && gameState.victory ? "victory" : "active"
-    };
+    return { campaignId: id || makeId("campaign"), name: name || gameState.partyName || "Новая партия", createdAt: createdAt || now, lastPlayedAt: now,
+      mapSize: mapSizeCells(gameState), mapSeed: gameState.mapSeed || null, status: gameState.victory ? "victory" : "active", gameVersion: GAME_VERSION, lastLoadedSaveId: null };
   }
+
+  function saveMetaLine(save) { return save ? escapeHtml(save.name) + " · ход " + save.turn + " · " + formatDate(save.updatedAt || save.createdAt) : "Пусто"; }
+  function campaignLine(c, count, turn) { return escapeHtml(c.name) + " · ход " + (turn || 1) + " · " + c.mapSize + "×" + c.mapSize + " · " + formatDate(c.lastPlayedAt) + " · сохранений: " + count; }
 
   function openDb() {
     return new Promise(function (resolve, reject) {
       if (!window.indexedDB) { reject(new Error("IndexedDB недоступна")); return; }
-      const request = indexedDB.open(DB_NAME, 1);
+      const request = indexedDB.open(DB_NAME, 2);
       request.onupgradeneeded = function () {
         const db = request.result;
-        if (!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, { keyPath: "id" });
+        if (!db.objectStoreNames.contains(CAMPAIGN_STORE)) db.createObjectStore(CAMPAIGN_STORE, { keyPath: "campaignId" });
+        if (!db.objectStoreNames.contains(SAVE_STORE)) {
+          const saves = db.createObjectStore(SAVE_STORE, { keyPath: "saveId" });
+          saves.createIndex("campaignId", "campaignId", { unique: false });
+        } else {
+          const tx = request.transaction;
+          const saves = tx.objectStore(SAVE_STORE);
+          if (!saves.indexNames.contains("campaignId")) saves.createIndex("campaignId", "campaignId", { unique: false });
+        }
       };
       request.onsuccess = function () { resolve(request.result); };
       request.onerror = function () { reject(request.error || new Error("Ошибка IndexedDB")); };
     });
   }
 
-  function dbTx(mode, worker) {
-    return openDb().then(function (db) {
-      return new Promise(function (resolve, reject) {
-        const tx = db.transaction(DB_STORE, mode);
-        const store = tx.objectStore(DB_STORE);
-        let result;
-        tx.oncomplete = function () { db.close(); resolve(result); };
-        tx.onerror = function () { db.close(); reject(tx.error || new Error("Ошибка хранилища")); };
-        result = worker(store);
-      });
-    });
+  function dbTx(stores, mode, worker) {
+    return openDb().then(function (db) { return new Promise(function (resolve, reject) {
+      const tx = db.transaction(stores, mode); const access = Array.isArray(stores) ? stores.map(function(n){ return tx.objectStore(n); }) : tx.objectStore(stores); let result;
+      tx.oncomplete = function(){ db.close(); resolve(result); }; tx.onerror = function(){ db.close(); reject(tx.error || new Error("Ошибка хранилища")); };
+      result = worker(access);
+    }); });
   }
+  function requestPromise(req) { return new Promise(function (resolve, reject) { req.onsuccess=function(){ resolve(req.result || null); }; req.onerror=function(){ reject(req.error); }; }); }
+  function requestAll(req) { return new Promise(function (resolve, reject) { req.onsuccess=function(){ resolve(req.result || []); }; req.onerror=function(){ reject(req.error); }; }); }
 
-  function getSaveRecord(id) {
-    if (!storageAvailable) {
-      const old = id === "autosave" ? loadGame() : null;
-      return Promise.resolve(old ? { id: "autosave", metadata: metadataFor("autosave", old, old.partyName || "Старая партия", null), gameState: old, schemaVersion: SAVE_SCHEMA_VERSION, updatedAt: new Date().toISOString() } : null);
-    }
-    return dbTx("readonly", function (store) { return requestPromise(store.get(id)); });
-  }
-  function requestPromise(req) {
-    return new Promise(function (resolve, reject) { req.onsuccess = function(){ resolve(req.result || null); }; req.onerror = function(){ reject(req.error); }; });
-  }
-  function putSaveRecord(id, gameState, name, sourceSlotId) {
-    const valid = validateSaveState(cloneState(gameState));
-    if (!valid) return Promise.reject(new Error("Состояние повреждено и не сохранено"));
-    valid.partyName = name || valid.partyName || "Новый мир";
-    return getSaveRecord(id).then(function (previous) {
-      const meta = metadataFor(id, valid, valid.partyName, previous && previous.metadata && previous.metadata.createdAt);
-      if (sourceSlotId) meta.sourceSlotId = sourceSlotId;
-      const record = { id: id, metadata: meta, gameState: valid, schemaVersion: SAVE_SCHEMA_VERSION, updatedAt: meta.updatedAt };
-      return dbTx("readwrite", function (store) { store.put(record); }).then(function () { return record; });
-    });
-  }
-  function deleteSaveRecord(id) { return dbTx("readwrite", function (store) { store.delete(id); }); }
-  function getSaveMetas() {
-    if (!storageAvailable) return Promise.resolve([]);
-    return dbTx("readonly", function (store) { return requestPromise(store.getAll()); }).then(function (records) {
-      return (records || []).map(function (r) { return r.metadata; });
-    });
-  }
+  function getCampaigns() { return storageAvailable ? dbTx(CAMPAIGN_STORE, "readonly", function(store){ return requestAll(store.getAll()); }) : Promise.resolve([]); }
+  function getCampaign(id) { return storageAvailable && id ? dbTx(CAMPAIGN_STORE, "readonly", function(store){ return requestPromise(store.get(id)); }) : Promise.resolve(null); }
+  function putCampaign(c) { return dbTx(CAMPAIGN_STORE, "readwrite", function(store){ store.put(c); }).then(function(){ return c; }); }
+  function deleteCampaign(id) { return dbTx([CAMPAIGN_STORE, SAVE_STORE], "readwrite", function(stores){ stores[0].delete(id); const idx=stores[1].index("campaignId"); idx.openCursor(IDBKeyRange.only(id)).onsuccess=function(e){ const cur=e.target.result; if(cur){ cur.delete(); cur.continue(); } }; }); }
+  function getCampaignSaves(campaignId) { return storageAvailable && campaignId ? dbTx(SAVE_STORE, "readonly", function(store){ return requestAll(store.index("campaignId").getAll(campaignId)); }).then(function(list){ return list.sort(function(a,b){ return String(b.updatedAt).localeCompare(String(a.updatedAt)); }); }) : Promise.resolve([]); }
+  function getSaveRecord(id) { return storageAvailable && id ? dbTx(SAVE_STORE, "readonly", function(store){ return requestPromise(store.get(id)); }) : Promise.resolve(null); }
+  function putSaveRecord(record) { return dbTx(SAVE_STORE, "readwrite", function(store){ store.put(record); }).then(function(){ return record; }); }
+  function deleteSaveRecord(id) { return dbTx(SAVE_STORE, "readwrite", function(store){ store.delete(id); }); }
 
-  function loadGame() {
-    const raw = safeGet(SAVE_KEY);
-    if (!raw) return null;
-    try { return migrateState(JSON.parse(raw)); } catch (error) { return null; }
-  }
-
+  function loadGame() { const raw = safeGet(SAVE_KEY); if (!raw) return null; try { return migrateState(JSON.parse(raw)); } catch (error) { return null; } }
   function setSaveStatus(text) { saveStatus = text; renderTop(); }
-  function queueSave(id, sourceState, name, sourceSlotId) {
-    if (!sourceState) return Promise.resolve(null);
-    if (!storageAvailable) { safeSet(SAVE_KEY, JSON.stringify(sourceState)); setSaveStatus("Сохранено"); return Promise.resolve({ id: id, metadata: metadataFor(id, sourceState, name, null), gameState: sourceState }); }
-    setSaveStatus("Сохранение…");
-    saveQueue = saveQueue.catch(function(){}).then(function () {
-      return putSaveRecord(id, sourceState, name, sourceSlotId).then(function (record) {
-        if (id === "autosave") lastAutosaveMeta = record.metadata;
-        setSaveStatus("Сохранено");
-        return record;
-      });
-    }).catch(function (error) {
-      setSaveStatus("Ошибка сохранения"); showToast("Не удалось сохранить: " + error.message, 3200); throw error;
-    });
+  function savingBlockedMessage() { return "Завершите текущее действие перед сохранением"; }
+  function canSaveNow() { return !!state && !endTurnBtn.disabled && !document.querySelector("#victoryModal.show"); }
+
+  function ensureCampaign() {
+    if (!state) return Promise.reject(new Error("Нет текущей партии"));
+    if (activeCampaignId) return getCampaign(activeCampaignId).then(function(c){ return c || putCampaign(campaignFromState(state, state.partyName, activeCampaignId)); });
+    const c = campaignFromState(state, state.partyName); activeCampaignId = c.campaignId; safeSet(ACTIVE_CAMPAIGN_KEY, activeCampaignId); return putCampaign(c);
+  }
+
+  function writeSnapshot(type, name, fixedSaveId, parentSaveId) {
+    if (!state) return Promise.resolve(null);
+    if (!canSaveNow() && type !== "autosave") { showToast(savingBlockedMessage(), 2600); return Promise.resolve(null); }
+    safeSet(SAVE_KEY, JSON.stringify(state)); setSaveStatus("Сохранение…");
+    saveQueue = saveQueue.catch(function(){}).then(function(){ return ensureCampaign().then(function(campaign){
+      const now = new Date().toISOString(); const valid = validateSaveState(cloneState(state)); if (!valid) throw new Error("Состояние повреждено и не сохранено");
+      valid.partyName = campaign.name; const saveId = fixedSaveId || makeId(type); const record = { id: saveId, saveId: saveId, campaignId: campaign.campaignId, name: name || slotLabel(saveId), gameState: valid, turn: valid.turn, type: type, createdAt: now, updatedAt: now, schemaVersion: SAVE_SCHEMA_VERSION, parentSaveId: parentSaveId || null, parentTurn: parentSaveId ? loadedSaveTurn : null };
+      return putSaveRecord(record).then(function(){ campaign.lastPlayedAt = now; campaign.status = valid.victory ? "victory" : "active"; campaign.lastLoadedSaveId = saveId; campaign.mapSize = mapSizeCells(valid); activeSaveId = saveId; loadedSaveId = saveId; loadedSaveTurn = valid.turn; safeSet(ACTIVE_SAVE_KEY, saveId); return putCampaign(campaign).then(function(){ setSaveStatus("Сохранено"); return record; }); });
+    }); }).catch(function(error){ setSaveStatus("Ошибка сохранения"); showToast("Не удалось сохранить: " + error.message, 3200); throw error; });
     return saveQueue;
   }
-  function saveGame() {
-    if (!state) return Promise.resolve();
-    safeSet(SAVE_KEY, JSON.stringify(state));
-    const target = activeSlotId || "autosave";
-    return queueSave(target, cloneState(state), state.partyName, activeSlotId).then(function () {
-      if (target !== "autosave") return queueSave("autosave", cloneState(state), state.partyName, target);
-    });
-  }
 
+  function quickSave() { return writeSnapshot("quicksave", "Быстрое сохранение", activeCampaignId + "-quicksave", loadedSaveId).then(function(r){ if(r) showToast("Игра сохранена"); }); }
+  function manualSave(slotIndex, name, overwriteId) { const parent = loadedSaveId && loadedSaveId !== overwriteId ? loadedSaveId : null; return writeSnapshot("manual", name, overwriteId || (activeCampaignId + "-manual-" + slotIndex), parent); }
+  function autoSave() {
+    if (!state) return Promise.resolve(null);
+    return saveQueue.catch(function(){}).then(function(){ return ensureCampaign().then(function(c){ return getCampaignSaves(c.campaignId).then(function(saves){
+      const autos = saves.filter(function(s){ return s.type === "autosave"; }).sort(function(a,b){ return String(b.updatedAt).localeCompare(String(a.updatedAt)); });
+      const ops = []; if (autos[2]) ops.push(deleteSaveRecord(autos[2].saveId));
+      if (autos[1]) { const oldId2 = autos[1].saveId; autos[1].saveId = c.campaignId + "-autosave-3"; autos[1].id = autos[1].saveId; autos[1].name = "autosave-3"; ops.push(deleteSaveRecord(oldId2).then(function(){ return putSaveRecord(autos[1]); })); }
+      if (autos[0]) { const oldId1 = autos[0].saveId; autos[0].saveId = c.campaignId + "-autosave-2"; autos[0].id = autos[0].saveId; autos[0].name = "autosave-2"; ops.push(deleteSaveRecord(oldId1).then(function(){ return putSaveRecord(autos[0]); })); }
+      return Promise.all(ops).then(function(){ return writeSnapshot("autosave", "autosave-1", c.campaignId + "-autosave-1", loadedSaveId); });
+    }); }); });
+  }
+  function saveGame() { return autoSave(); }
   function clamp(value, min, max) {
     return Math.min(max, Math.max(min, value));
   }
@@ -2739,7 +2738,7 @@
     }).join("");
 
     wikiContent.innerHTML =
-      '<div class="section-title">Что изменилось в v1.3.1</div>' +
+      '<div class="section-title">Что изменилось в v1.3.2</div>' +
       '<div class="wiki-callout"><strong>Главное меню, пять слотов сохранения и безопасное автосохранение.</strong> Новые партии используют карту 28×28, а в меню новой игры можно выбрать 20×20, 28×28 или 36×36.</div>' +
       '<div class="section-title">Юниты и карта</div>' +
       '<div class="wiki-list">' +
@@ -2779,87 +2778,86 @@
     history.replaceState({ screen: name }, "", location.pathname + location.search + "#" + name);
   }
   function renderScreen(html) { screenRoot.innerHTML = '<div class="screen-panel">' + html + '</div>'; }
-  function startPlaying(loadedState, slotId) {
+  function startPlaying(loadedState, campaignId, saveId) {
     const valid = validateSaveState(loadedState);
     if (!valid) { showToast("Не удалось загрузить сохранение. Данные не были удалены", 3600); return; }
-    state = valid; activeSlotId = slotId || activeSlotId; if (activeSlotId) safeSet(ACTIVE_SLOT_KEY, activeSlotId);
+    state = valid; activeCampaignId = campaignId || activeCampaignId; activeSaveId = saveId || activeSaveId; loadedSaveId = activeSaveId; loadedSaveTurn = state.turn;
+    if (activeCampaignId) safeSet(ACTIVE_CAMPAIGN_KEY, activeCampaignId); if (activeSaveId) safeSet(ACTIVE_SAVE_KEY, activeSaveId);
     selected = null; selectedUnitId = state.units.length ? state.units[0].id : null;
     camera = loadCamera() || { x: 0, y: 0, scale: CAMERA_DEFAULT_SCALE }; cameraInitialized = !!loadCamera();
     setScreen("playing"); render(); initializeCamera(!cameraInitialized);
-    queueSave("autosave", cloneState(state), state.partyName, activeSlotId).catch(function(){});
+    if (activeCampaignId && activeSaveId) getCampaign(activeCampaignId).then(function(c){ if(c){ c.lastLoadedSaveId = activeSaveId; c.lastPlayedAt = new Date().toISOString(); putCampaign(c); } });
   }
-  function metaLine(meta) { return escapeHtml(meta.name) + " · ход " + meta.turn + " · " + meta.mapSize + "×" + meta.mapSize + " · " + formatDate(meta.updatedAt); }
+
   function openMainMenu() {
     setScreen("main-menu");
-    getSaveRecord("autosave").then(function (auto) {
-      lastAutosaveMeta = auto && auto.metadata;
-      renderScreen('<h1 class="menu-title">ЭПОХИ</h1><p class="menu-version">v1.3.1</p>' +
-        (storageWarning ? '<div class="screen-note">' + escapeHtml(storageWarning) + '</div>' : '') +
-        '<div class="menu-stack">' +
-        '<button id="continueBtn" class="menu-primary" ' + (!auto ? 'disabled' : '') + '>Продолжить</button>' +
-        '<div class="menu-hint">' + (auto ? metaLine(auto.metadata) : 'Автосохранения пока нет.') + '</div>' +
-        '<button id="newGameScreenBtn" class="menu-primary">Новая игра</button>' +
-        '<button id="loadGameScreenBtn" class="menu-primary secondary">Загрузить игру</button>' +
-        '<button id="wikiScreenBtn" class="menu-primary secondary">Вики</button>' +
-        '<button id="settingsScreenBtn" class="menu-primary ghost">Настройки</button></div>');
-      const c = document.getElementById("continueBtn"); if (c) c.onclick = function(){ startPlaying(auto.gameState, auto.metadata.sourceSlotId); };
-      document.getElementById("newGameScreenBtn").onclick = openNewGameScreen;
-      document.getElementById("loadGameScreenBtn").onclick = openLoadGameScreen;
-      document.getElementById("wikiScreenBtn").onclick = function(){ setScreen("wiki"); gameApp.classList.add("is-hidden"); openWiki(); document.querySelector('#wikiModal .close-btn').onclick = function(){ closeModal('wikiModal'); openMainMenu(); }; };
-      document.getElementById("settingsScreenBtn").onclick = openSettingsScreen;
-    }).catch(function(){ renderScreen('<h1 class="menu-title">ЭПОХИ</h1><div class="screen-note">Не удалось открыть IndexedDB. Доступен ограниченный режим одного старого сохранения.</div><button id="fallbackBtn" class="menu-primary">Открыть старую партию</button>'); document.getElementById('fallbackBtn').onclick=function(){ const old=loadGame(); if(old) startPlaying(old,null); }; });
+    Promise.all([getCampaigns(), storageEstimateKb()]).then(function(res) {
+      const campaigns = res[0].sort(function(a,b){ return String(b.lastPlayedAt).localeCompare(String(a.lastPlayedAt)); }); const approx = res[1];
+      const cards = campaigns.length ? campaigns.map(function(c){ return '<article class="slot-card" data-campaign="'+c.campaignId+'"><strong>'+escapeHtml(c.name)+'</strong><small id="line-'+c.campaignId+'">'+c.mapSize+'×'+c.mapSize+' · '+formatDate(c.lastPlayedAt)+'</small><div class="slot-actions"><button data-continue="'+c.campaignId+'" class="menu-primary">Продолжить</button><button data-saves="'+c.campaignId+'" class="menu-primary secondary">Сохранения</button><button data-rename-campaign="'+c.campaignId+'" class="menu-primary secondary">Переименовать</button><button data-delete-campaign="'+c.campaignId+'" class="menu-primary danger">Удалить</button></div></article>'; }).join('') : '<div class="menu-hint">Партий пока нет. Создайте новый мир.</div>';
+      renderScreen('<h1 class="menu-title">ЭПОХИ</h1><p class="menu-version">v1.3.2</p>' + (storageWarning ? '<div class="screen-note">'+escapeHtml(storageWarning)+'</div>' : '') + '<div class="menu-hint">v1.3.2: несколько сохранений внутри партии, быстрое сохранение и выход в главное меню.<br>Примерный размер данных: '+approx+' КБ.</div><div class="menu-stack"><button id="newGameScreenBtn" class="menu-primary">Новая игра</button><button id="wikiScreenBtn" class="menu-primary secondary">Вики</button><button id="settingsScreenBtn" class="menu-primary ghost">Настройки</button></div><div class="section-title">Партии</div><div class="slot-list">'+cards+'</div>');
+      campaigns.forEach(function(c){ getCampaignSaves(c.campaignId).then(function(saves){ const latest=saves[0]; const el=document.getElementById('line-'+c.campaignId); if(el) el.textContent = campaignLine(c, saves.length, latest && latest.turn); }); });
+      document.getElementById("newGameScreenBtn").onclick = openNewGameScreen; document.getElementById("wikiScreenBtn").onclick = function(){ setScreen("wiki"); openWiki(); document.querySelector('#wikiModal .close-btn').onclick = function(){ closeModal('wikiModal'); openMainMenu(); }; }; document.getElementById("settingsScreenBtn").onclick = openSettingsScreen;
+      screenRoot.querySelectorAll('[data-continue]').forEach(function(b){ b.onclick=function(){ continueCampaign(b.dataset.continue); }; });
+      screenRoot.querySelectorAll('[data-saves]').forEach(function(b){ b.onclick=function(){ openCampaignSavesScreen(b.dataset.saves, false); }; });
+      screenRoot.querySelectorAll('[data-rename-campaign]').forEach(function(b){ b.onclick=function(){ getCampaign(b.dataset.renameCampaign).then(function(c){ const n=prompt('Новое название партии', c.name); if(!n) return; c.name=n.trim(); putCampaign(c).then(openMainMenu); }); }; });
+      screenRoot.querySelectorAll('[data-delete-campaign]').forEach(function(b){ b.onclick=function(){ if(confirm('Удалить партию и все её сохранения?') && confirm('Точно удалить без возможности восстановления?')) deleteCampaign(b.dataset.deleteCampaign).then(openMainMenu); }; });
+    });
   }
+
+  function continueCampaign(campaignId) { getCampaign(campaignId).then(function(c){ return getCampaignSaves(campaignId).then(function(saves){ const save = saves.find(function(s){ return s.saveId === c.lastLoadedSaveId; }) || saves.find(function(s){ return s.type === 'autosave'; }) || saves[0]; if(!save) return showToast('У партии нет сохранений'); startPlaying(save.gameState, campaignId, save.saveId); }); }); }
+  function storageEstimateKb() { return Promise.all([getCampaigns()]).then(function(res){ return getCampaigns().then(function(cs){ return Promise.all(cs.map(function(c){ return getCampaignSaves(c.campaignId); })).then(function(all){ return Math.round(JSON.stringify(cs).length/1024 + JSON.stringify([].concat.apply([],all).map(function(s){ return { saveId:s.saveId,campaignId:s.campaignId,name:s.name,turn:s.turn,type:s.type,updatedAt:s.updatedAt }; })).length/1024); }); }); }).catch(function(){ return 0; }); }
+
   function openNewGameScreen() {
-    setScreen("new-game");
-    getSaveMetas().then(function (metas) {
-      const used = {}; metas.forEach(function (m) { used[m.id] = m; });
-      const defName = "Новый мир " + (SLOT_IDS.filter(function(id){return used[id];}).length + 1);
-      renderScreen('<div class="screen-head"><h2>Новая игра</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="screen-form">' +
-        '<label class="field-label">Название партии<input id="partyName" value="' + defName + '"></label>' +
-        '<label class="field-label">Размер карты<select id="partySize"><option value="small">маленькая — 20×20</option><option value="normal" selected>обычная — 28×28</option><option value="large">большая — 36×36</option></select></label>' +
-        '<label class="field-label">Слот сохранения<select id="partySlot">' + SLOT_IDS.map(function(id){ return '<option value="'+id+'">'+slotLabel(id)+(used[id]?' — занято':' — свободно')+'</option>'; }).join('') + '</select></label>' +
-        '<button id="createParty" class="menu-primary">Создать мир</button></div>');
-      document.getElementById("backMain").onclick = openMainMenu;
-      document.getElementById("createParty").onclick = function(){
-        const slot = document.getElementById("partySlot").value;
-        if (used[slot] && !window.confirm("Перезаписать " + slotLabel(slot) + "?")) return;
-        const size = MAP_SIZES[document.getElementById("partySize").value] || DEFAULT_MAP_SIZE;
-        const ns = createNewGame(size); ns.partyName = document.getElementById("partyName").value.trim() || defName;
-        activeSlotId = slot; safeSet(ACTIVE_SLOT_KEY, slot); state = ns;
-        queueSave(slot, cloneState(ns), ns.partyName, slot).then(function(){ return queueSave("autosave", cloneState(ns), ns.partyName, slot); }).then(function(){ startPlaying(ns, slot); });
-      };
+    setScreen("new-game"); const defName = "Новый мир";
+    renderScreen('<div class="screen-head"><h2>Новая игра</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="screen-form"><label class="field-label">Название партии<input id="partyName" value="'+defName+'"></label><label class="field-label">Размер карты<select id="partySize"><option value="small">маленькая — 20×20</option><option value="normal" selected>обычная — 28×28</option><option value="large">большая — 36×36</option></select></label><button id="createParty" class="menu-primary">Создать мир</button></div>');
+    document.getElementById("backMain").onclick = openMainMenu;
+    document.getElementById("createParty").onclick = function(){ const size=MAP_SIZES[document.getElementById('partySize').value]||DEFAULT_MAP_SIZE; const ns=createNewGame(size); ns.partyName=document.getElementById('partyName').value.trim()||defName; state=ns; const c=campaignFromState(ns, ns.partyName); activeCampaignId=c.campaignId; safeSet(ACTIVE_CAMPAIGN_KEY, activeCampaignId); putCampaign(c).then(function(){ return manualSave(1, 'Начало партии', c.campaignId+'-manual-1'); }).then(function(){ return autoSave(); }).then(function(){ startPlaying(ns, c.campaignId, activeSaveId); }); };
+  }
+
+  function openCampaignSavesScreen(campaignId, inGame) {
+    if (!inGame) setScreen("load-game");
+    getCampaign(campaignId).then(function(c){ return getCampaignSaves(campaignId).then(function(saves){
+      const order = ['manual','autosave','quicksave']; saves.sort(function(a,b){ return order.indexOf(a.type)-order.indexOf(b.type) || String(b.updatedAt).localeCompare(String(a.updatedAt)); });
+      const html = '<div class="screen-head"><h2>Сохранения: '+escapeHtml(c.name)+'</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="slot-list">' + saves.map(function(s){ const branch = s.parentSaveId ? '<br>Создано из сохранения хода '+(s.parentTurn || '?') : ''; return '<article class="slot-card"><strong>'+saveTypeLabel(s.type)+': '+escapeHtml(s.name)+'</strong><small>ход '+s.turn+' · '+formatDate(s.updatedAt)+branch+'</small><div class="slot-actions"><button data-load-save="'+s.saveId+'" class="menu-primary">Загрузить</button>'+(s.type==='manual'?'<button data-rename-save="'+s.saveId+'" class="menu-primary secondary">Переименовать</button><button data-delete-save="'+s.saveId+'" class="menu-primary danger">Удалить</button>':'')+'</div></article>'; }).join('') + '</div>';
+      if (inGame) { menuContent.innerHTML = html; document.getElementById('backMain').onclick=openMenu; } else { renderScreen(html); document.getElementById('backMain').onclick=openMainMenu; }
+      const root = inGame ? menuContent : screenRoot;
+      root.querySelectorAll('[data-load-save]').forEach(function(b){ b.onclick=function(){ if(inGame && !confirm('Несохранённый прогресс текущей игры будет потерян')) return; getSaveRecord(b.dataset.loadSave).then(function(r){ startPlaying(r.gameState, r.campaignId, r.saveId); closeModal('menuModal'); }); }; });
+      root.querySelectorAll('[data-rename-save]').forEach(function(b){ b.onclick=function(){ getSaveRecord(b.dataset.renameSave).then(function(r){ const n=prompt('Название сохранения', r.name); if(!n) return; r.name=n.trim(); r.updatedAt=new Date().toISOString(); putSaveRecord(r).then(function(){ openCampaignSavesScreen(campaignId,inGame); }); }); }; });
+      root.querySelectorAll('[data-delete-save]').forEach(function(b){ b.onclick=function(){ if(confirm('Удалить сохранение?') && confirm('Точно удалить эту точку?')) deleteSaveRecord(b.dataset.deleteSave).then(function(){ openCampaignSavesScreen(campaignId,inGame); }); }; });
+    }); });
+  }
+
+  function openManualSaveScreen() {
+    getCampaignSaves(activeCampaignId).then(function(saves){ const manual = saves.filter(function(s){ return s.type==='manual'; });
+      menuContent.innerHTML = '<div class="screen-head"><h2>Сохранить как…</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="slot-list">' + [1,2,3].map(function(i){ const s=manual.find(function(x){ return x.saveId === activeCampaignId+'-manual-'+i; }); return '<article class="slot-card"><strong>Ручное '+i+'</strong><small>'+(s?saveMetaLine(s):'Свободный слот')+'</small><div class="slot-actions"><button data-write-manual="'+i+'" '+(s?'data-existing="'+s.saveId+'"':'')+' class="menu-primary">'+(s?'Перезаписать':'Создать')+'</button>'+(s?'<button data-rename-save="'+s.saveId+'" class="menu-primary secondary">Переименовать</button><button data-delete-save="'+s.saveId+'" class="menu-primary danger">Удалить</button>':'')+'</div></article>'; }).join('') + '</div>';
+      document.getElementById('backMain').onclick=openMenu;
+      menuContent.querySelectorAll('[data-write-manual]').forEach(function(b){ b.onclick=function(){ if(!canSaveNow()) return showToast(savingBlockedMessage()); const existing=b.dataset.existing; if(existing && !confirm('Перезаписать ручное сохранение?')) return; const name=prompt('Название сохранения', existing ? 'Ручное '+b.dataset.writeManual : 'Перед важным решением'); if(!name) return; manualSave(b.dataset.writeManual, name.trim(), existing || activeCampaignId+'-manual-'+b.dataset.writeManual).then(function(){ showToast('Игра сохранена'); openMenu(); }); }; });
+      menuContent.querySelectorAll('[data-rename-save]').forEach(function(b){ b.onclick=function(){ getSaveRecord(b.dataset.renameSave).then(function(r){ const n=prompt('Название сохранения', r.name); if(!n) return; r.name=n.trim(); r.updatedAt=new Date().toISOString(); putSaveRecord(r).then(openManualSaveScreen); }); }; });
+      menuContent.querySelectorAll('[data-delete-save]').forEach(function(b){ b.onclick=function(){ if(confirm('Удалить сохранение?') && confirm('Точно удалить эту точку?')) deleteSaveRecord(b.dataset.deleteSave).then(openManualSaveScreen); }; });
     });
   }
-  function openLoadGameScreen() {
-    setScreen("load-game");
-    getSaveMetas().then(function (metas) {
-      const by = {}; metas.forEach(function(m){ by[m.id]=m; });
-      renderScreen('<div class="screen-head"><h2>Загрузка</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="slot-list">' + SLOT_IDS.map(function(id){ const m=by[id]; return '<article class="slot-card"><strong>'+slotLabel(id)+'</strong><small>'+(m? metaLine(m)+' · '+m.gameVersion : 'Пустой слот')+'</small><div class="slot-actions">'+(m?'<button data-load="'+id+'" class="menu-primary">Загрузить</button><button data-rename="'+id+'" class="menu-primary secondary">Переименовать</button><button data-overwrite="'+id+'" class="menu-primary secondary">Перезаписать</button><button data-delete="'+id+'" class="menu-primary danger">Удалить</button>':'<button data-copy="'+id+'" class="menu-primary">Сохранить сюда</button>')+'</div></article>'; }).join('') + '</div>');
-      document.getElementById("backMain").onclick = openMainMenu;
-      screenRoot.querySelectorAll('[data-load]').forEach(function(b){ b.onclick=function(){ getSaveRecord(b.dataset.load).then(function(r){ if(!r||!validateSaveState(r.gameState)) return showToast("Не удалось загрузить сохранение. Данные не были удалены",3600); startPlaying(r.gameState,b.dataset.load); });}; });
-      screenRoot.querySelectorAll('[data-rename]').forEach(function(b){ b.onclick=function(){ getSaveRecord(b.dataset.rename).then(function(r){ const n=window.prompt('Новое название партии', r.metadata.name); if(!n) return; r.metadata.name=n; r.gameState.partyName=n; r.updatedAt=new Date().toISOString(); return dbTx('readwrite', function(store){ store.put(r); }).then(openLoadGameScreen); });}; });
-      screenRoot.querySelectorAll('[data-delete]').forEach(function(b){ b.onclick=function(){ if(window.confirm('Удалить сохранение?') && window.confirm('Точно удалить '+slotLabel(b.dataset.delete)+'?')) deleteSaveRecord(b.dataset.delete).then(openLoadGameScreen); }; });
-      screenRoot.querySelectorAll('[data-overwrite]').forEach(function(b){ b.onclick=function(){ if(!state) return showToast('Нет текущей партии для перезаписи'); if(window.confirm('Перезаписать '+slotLabel(b.dataset.overwrite)+' текущей партией?')) { activeSlotId=b.dataset.overwrite; safeSet(ACTIVE_SLOT_KEY, activeSlotId); saveGame().then(openLoadGameScreen); } }; });
-      screenRoot.querySelectorAll('[data-copy]').forEach(function(b){ b.onclick=function(){ if(!state) return showToast('Нет текущей партии для сохранения'); activeSlotId=b.dataset.copy; safeSet(ACTIVE_SLOT_KEY, activeSlotId); saveGame().then(openLoadGameScreen); }; });
+
+  function openLoadGameScreen() { openMainMenu(); }
+  function openSettingsScreen() { setScreen("settings"); storageEstimateKb().then(function(approx){ renderScreen('<div class="screen-head"><h2>Настройки</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="menu-stack"><div class="screen-note">IndexedDB: '+(storageAvailable?'доступна':'недоступна')+'<br>Object stores: campaigns, saves<br>Примерный общий размер данных: '+approx+' КБ</div><label class="field-label"><input id="soundToggle" type="checkbox"> Звук (в игре пока нет звуковых эффектов)</label></div>'); document.getElementById('backMain').onclick=openMainMenu; }); }
+
+  function migrateLegacyRecord(record, fallbackId) {
+    const gs = validateSaveState(cloneState(record.gameState || record)); if (!gs) return Promise.resolve();
+    gs.partyName = (record.metadata && record.metadata.name) || gs.partyName || (fallbackId === 'slot-2' ? 'Старая партия 2' : 'Старая партия');
+    const c = campaignFromState(gs, gs.partyName, 'campaign-migrated-' + fallbackId, record.createdAt || (record.metadata && record.metadata.createdAt));
+    return getCampaign(c.campaignId).then(function(existing){ if(existing) return;
+      const manual = { id:c.campaignId+'-manual-1', saveId:c.campaignId+'-manual-1', campaignId:c.campaignId, name:gs.partyName, gameState:gs, turn:gs.turn, type:'manual', createdAt:c.createdAt, updatedAt:record.updatedAt || (record.metadata && record.metadata.updatedAt) || c.createdAt, schemaVersion:SAVE_SCHEMA_VERSION, parentSaveId:null };
+      const auto = { id:c.campaignId+'-autosave-1', saveId:c.campaignId+'-autosave-1', campaignId:c.campaignId, name:'autosave-1', gameState:cloneState(gs), turn:gs.turn, type:'autosave', createdAt:manual.createdAt, updatedAt:manual.updatedAt, schemaVersion:SAVE_SCHEMA_VERSION, parentSaveId:null };
+      c.lastLoadedSaveId = auto.saveId; c.lastPlayedAt = auto.updatedAt;
+      return putCampaign(c).then(function(){ return putSaveRecord(manual); }).then(function(){ return putSaveRecord(auto); });
     });
   }
-  function openSettingsScreen() {
-    setScreen("settings");
-    getSaveMetas().then(function(metas){
-      const occupied = metas.filter(function(m){ return SLOT_IDS.indexOf(m.id)!==-1; }).length;
-      const approx = Math.round((JSON.stringify(metas).length + (safeGet(SAVE_KEY)||'').length) / 1024);
-      renderScreen('<div class="screen-head"><h2>Настройки</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="menu-stack"><div class="screen-note">IndexedDB: '+(storageAvailable?'доступна':'недоступна')+'<br>Занято слотов: '+occupied+'/5<br>Примерный размер списка: '+approx+' КБ</div><label class="field-label"><input id="soundToggle" type="checkbox"> Звук (в игре пока нет звуковых эффектов)</label><button id="deleteAll" class="menu-primary danger">Удалить все сохранения</button></div>');
-      document.getElementById('backMain').onclick=openMainMenu;
-      document.getElementById('deleteAll').onclick=function(){ if(window.confirm('Удалить все новые сохранения?') && window.confirm('Это действие нельзя отменить. Удалить?')) Promise.all(SLOT_IDS.concat(['autosave']).map(deleteSaveRecord)).then(openMainMenu); };
-    });
-  }
+
   function migrateOldSaveIfNeeded() {
     if (safeGet(MIGRATION_KEY)) return Promise.resolve();
-    const old = loadGame(); if (!old) return Promise.resolve();
-    return getSaveRecord('slot-1').then(function(existing){ if(existing) { safeSet(MIGRATION_KEY,'1'); return; }
-      old.partyName = old.partyName || 'Старая партия'; activeSlotId='slot-1'; safeSet(ACTIVE_SLOT_KEY,'slot-1');
-      return putSaveRecord('slot-1', old, old.partyName, 'slot-1').then(function(){ return putSaveRecord('autosave', old, old.partyName, 'slot-1'); }).then(function(){ return getSaveRecord('slot-1'); }).then(function(check){ if(!check) throw new Error('Проверка миграции не прошла'); safeSet(MIGRATION_KEY,'1'); });
-    }).catch(function(error){ showToast('Миграция старого сохранения не удалась. Старые данные не изменены.',4200); });
+    return Promise.all(['slot-1','slot-2'].map(function(id){ return getSaveRecord(id).then(function(r){ return r ? migrateLegacyRecord(r, id) : null; }); })).then(function(){
+      const legacy = loadGame(); if (!legacy) { safeSet(MIGRATION_KEY,'1'); return; }
+      return migrateLegacyRecord({ gameState: legacy }, 'local').then(function(){ return getCampaigns(); }).then(function(check){ if(!check.length) throw new Error('Проверка миграции не прошла'); safeSet(MIGRATION_KEY,'1'); });
+    }).catch(function(){ showToast('Миграция старого сохранения не удалась. Старые данные не изменены.',4200); });
   }
 
   function openArtifacts() {
@@ -2869,44 +2867,27 @@
   }
 
   function openMenu() {
-    const saved = safeGet(SAVE_KEY) ? "Игра автоматически сохранена на этом устройстве." : "Сохранение пока недоступно в этом режиме.";
-    const history = state.history.length
-      ? state.history.slice(0, 7).map(function (item) { return '<div class="chip" style="width:100%">' + item + '</div>'; }).join("")
-      : '<div class="inline-note">Летопись пока пуста.</div>';
-
+    const history = state.history.length ? state.history.slice(0, 7).map(function (item) { return '<div class="chip" style="width:100%">' + item + '</div>'; }).join("") : '<div class="inline-note">Летопись пока пуста.</div>';
+    const blocked = canSaveNow() ? '' : '<div class="inline-note">'+savingBlockedMessage()+'</div>';
     menuContent.innerHTML =
-      '<div class="section-title">Как играть</div>' +
-      '<div class="inline-note">' +
-        '<strong>1.</strong> Нажми юнита, затем соседнюю клетку и «Идти».<br>' +
-        '<strong>2.</strong> В городе поставь в очередь рабочего, юнита или здание.<br>' +
-        '<strong>3.</strong> Рабочим встань на клетку внутри территории и построй улучшение.<br>' +
-        '<strong>4.</strong> Исследуй технологии, расширяйся форпостами и заверши дворец.' +
-      '</div>' +
-      '<div class="section-title">Партия</div><div class="inline-note">' + escapeHtml(state.partyName || 'Новый мир') + ' · ' + slotLabel(activeSlotId) + '<br>' + saveStatus + '</div>' +
+      '<div class="section-title">Партия</div><div class="inline-note">' + escapeHtml(state.partyName || 'Новый мир') + ' · ход ' + state.turn + '<br>' + saveStatus + (loadedSaveTurn ? '<br>Последняя загрузка: ход '+loadedSaveTurn : '') + '</div>' + blocked +
       '<div class="section-title">Последние события</div><div class="built-list">' + history + '</div>' +
-      '<div class="section-title">Новый мир</div>' +
-      '<label class="inline-note" style="display:block">Размер карты: <select id="newMapSize" style="width:100%;margin-top:6px;padding:8px;border-radius:8px"><option value="small">маленькая — 20×20</option><option value="normal" selected>обычная — 28×28</option><option value="large">большая — 36×36</option></select></label>' +
-      '<div class="section-title">Игра</div>' +
-      '<div class="menu-actions">' +
-        '<button id="artifactsBtn" class="wide-btn secondary">✦ Артефакты</button>' +
-        '<button id="wikiBtn" class="wide-btn secondary">📖 Вики: что на что влияет</button>' +
-        '<button id="saveNowBtn" class="wide-btn">Сохранить</button>' +
-        '<button id="saveAsBtn" class="wide-btn secondary">Сохранить как…</button>' +
-        '<button id="toMainBtn" class="wide-btn secondary">В главное меню</button>' +
+      '<div class="section-title">☰ Меню</div><div class="menu-actions">' +
         '<button id="closeMenuWide" class="wide-btn">Продолжить</button>' +
-        '<button id="newGameBtn" class="wide-btn danger">Начать новый мир</button>' +
+        '<button id="quickSaveBtn" class="wide-btn">Быстро сохранить</button>' +
+        '<button id="saveAsBtn" class="wide-btn secondary">Сохранить как…</button>' +
+        '<button id="loadCurrentCampaignBtn" class="wide-btn secondary">Загрузить сохранение</button>' +
+        '<button id="wikiBtn" class="wide-btn secondary">📖 Вики</button>' +
+        '<button id="toMainBtn" class="wide-btn secondary">В главное меню</button>' +
+        '<button id="artifactsBtn" class="wide-btn secondary">✦ Артефакты</button>' +
       '</div>';
-
     document.getElementById("artifactsBtn").addEventListener("click", openArtifacts);
-    document.getElementById("wikiBtn").addEventListener("click", function () {
-      closeModal("menuModal");
-      openWiki();
-    });
-    document.getElementById("saveNowBtn").addEventListener("click", function(){ if (!activeSlotId) return openLoadGameScreen(); saveGame().then(function(){ showToast("Партия сохранена"); }); });
-    document.getElementById("saveAsBtn").addEventListener("click", function(){ closeModal("menuModal"); openLoadGameScreen(); });
-    document.getElementById("toMainBtn").addEventListener("click", function(){ saveGame().finally(openMainMenu); });
+    document.getElementById("wikiBtn").addEventListener("click", function () { closeModal("menuModal"); openWiki(); });
+    document.getElementById("quickSaveBtn").addEventListener("click", function(){ quickSave(); });
+    document.getElementById("saveAsBtn").addEventListener("click", openManualSaveScreen);
+    document.getElementById("loadCurrentCampaignBtn").addEventListener("click", function(){ openCampaignSavesScreen(activeCampaignId, true); });
+    document.getElementById("toMainBtn").addEventListener("click", function(){ if(!canSaveNow()) return showToast(savingBlockedMessage()); autoSave().then(function(){ closeModal('menuModal'); openMainMenu(); }).catch(function(){ const choice=prompt('Автосохранение не удалось. Введите: повторить, выйти, отмена', 'повторить'); if(choice==='повторить') autoSave().then(openMainMenu); else if(choice==='выйти') { closeModal('menuModal'); openMainMenu(); } }); });
     document.getElementById("closeMenuWide").addEventListener("click", function () { closeModal("menuModal"); });
-    document.getElementById("newGameBtn").addEventListener("click", function(){ closeModal("menuModal"); openNewGameScreen(); });
     openModal("menuModal");
   }
 
@@ -3167,7 +3148,7 @@
 
   openDb().then(function(db){ db.close(); storageAvailable = true; return migrateOldSaveIfNeeded(); }).catch(function(error){ storageAvailable = false; storageWarning = "IndexedDB недоступна: " + error.message + ". Пять слотов отключены, старое localStorage-сохранение не изменяется."; }).finally(function(){
     openMainMenu();
-    if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.3.1: главное меню, пять слотов сохранения и безопасное автосохранение", 3600); }, 350); }
+    if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.3.2: несколько сохранений внутри партии, быстрое сохранение и выход в главное меню", 3600); }, 350); }
   });
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
