@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-  <title>Эпохи v1.2.1 — пошаговая стратегия</title>
+  <title>Эпохи v1.3-alpha — пошаговая стратегия</title>
   <style>
     :root {
       --bg: #18231c;
@@ -222,11 +222,11 @@
       position: absolute;
       left: 5px;
       top: 5px;
-      width: calc(var(--tile-size) * 12 + var(--tile-gap) * 11);
-      height: calc(var(--tile-size) * 12 + var(--tile-gap) * 11);
+      width: calc(var(--tile-size) * var(--map-size, 28) + var(--tile-gap) * (var(--map-size, 28) - 1));
+      height: calc(var(--tile-size) * var(--map-size, 28) + var(--tile-gap) * (var(--map-size, 28) - 1));
       display: grid;
-      grid-template-columns: repeat(12, var(--tile-size));
-      grid-template-rows: repeat(12, var(--tile-size));
+      grid-template-columns: repeat(var(--map-size, 28), var(--tile-size));
+      grid-template-rows: repeat(var(--map-size, 28), var(--tile-size));
       gap: var(--tile-gap);
       overflow: visible;
       border-radius: 12px;
@@ -957,6 +957,16 @@
       50% { transform: scale(1.12); }
     }
 
+
+    .piece.enemy, .piece.camp, .piece.poi { border-radius: 8px; font-weight: 900; }
+    .piece.enemy { left: 9%; bottom: 8%; width: 62%; height: 62%; z-index: 23; background: linear-gradient(#6f3b35,#321817); border-color:#f0c1aa; color:#fff; }
+    .piece.camp { left: 8%; top: 8%; width: 58%; height: 58%; z-index: 16; background: linear-gradient(#3e3128,#17110f); border-color:#d8b27a; color:#f5dfbd; }
+    .piece.poi { left: 12%; top: 12%; width: 42%; height: 42%; z-index: 15; background: linear-gradient(#efe5c7,#8b764a); border-color:#fff8d9; color:#251b0d; font-size:.7em; }
+    .hp-bar { position:absolute; left:12%; right:12%; bottom:2px; height:4px; z-index:28; background:rgba(0,0,0,.45); border-radius:5px; overflow:hidden; }
+    .hp-bar span { display:block; height:100%; background:#69c36c; }
+    .tile.attack-target { box-shadow: inset 0 0 0 3px #ffcf65, 0 0 10px rgba(255,120,80,.75); }
+    .improvement.pillaged { filter: grayscale(1); text-decoration: line-through; }
+
     .queue-box {
       padding: 11px;
       border-radius: 13px;
@@ -1002,7 +1012,7 @@
     <header class="topbar">
       <div class="brand">
         <h1>Эпохи</h1>
-        <p id="subtitle">От племени к империи · v1.2.1</p>
+        <p id="subtitle">От племени к империи · v1.3-alpha</p>
       </div>
       <div class="turn-card">
         <small id="eraLabel">Племя</small>
@@ -1103,11 +1113,12 @@
 (function () {
   "use strict";
 
-  const MAP_SIZE = 12;
+  const DEFAULT_MAP_SIZE = 28;
+  const MAP_SIZES = { small: 20, normal: 28, large: 36 };
   const SAVE_KEY = "mika-epohi-v1-state";
   const CAMERA_KEY = "mika-epohi-v12-camera";
   const TUTORIAL_KEY = "mika-epohi-v1-seen";
-  const UPDATE_KEY = "mika-epohi-v121-seen";
+  const UPDATE_KEY = "mika-epohi-v13-alpha-seen";
   const CAMERA_MIN_SCALE = 0.8;
   const CAMERA_MAX_SCALE = 2;
   const CAMERA_DEFAULT_SCALE = 1.3;
@@ -1119,7 +1130,9 @@
     forest: { name: "Лес", icon: "🌲", base: { food: 0, production: 1, gold: 0, science: 0 } },
     hill: { name: "Холмы", icon: "⛰️", base: { food: 0, production: 1, gold: 0, science: 0 } },
     water: { name: "Побережье", icon: "🌊", base: { food: 1, production: 0, gold: 1, science: 0 } },
-    desert: { name: "Пустошь", icon: "🏜️", base: { food: 0, production: 0, gold: 1, science: 0 } }
+    desert: { name: "Пустошь", icon: "🏜️", base: { food: 0, production: 0, gold: 1, science: 0 } },
+    swamp: { name: "Болото", icon: "♒", base: { food: 1, production: 0, gold: 0, science: 1 } },
+    dead: { name: "Мёртвые земли", icon: "☠", base: { food: 0, production: 0, gold: 0, science: 1 } }
   };
 
   const FEATURES = {
@@ -1127,7 +1140,7 @@
     ore: { name: "Руда", icon: "🪨", bonus: { production: 1 } },
     gems: { name: "Самоцветы", icon: "💎", bonus: { gold: 1 } },
     fish: { name: "Рыба", icon: "🐟", bonus: { food: 1 } },
-    ruins: { name: "Древние руины", icon: "🏺", bonus: {} }
+    ruins: { name: "Древние руины", icon: "⌁", bonus: {} }
   };
 
   const IMPROVEMENTS = {
@@ -1192,25 +1205,38 @@
   const UNIT_DEFS = {
     worker: {
       name: "Рабочий", icon: "🧑‍🔧", mapIcon: "🔨", tech: null, population: 1,
-      cost: { production: 22 }, maxMoves: 1,
+      cost: { production: 22 }, maxMoves: 1, maxHealth: 70, attack: 4, defense: 4,
       description: "Строит улучшения только на клетке, где стоит"
     },
     scout: {
       name: "Разведчик", icon: "🧭", mapIcon: "🧭", tech: null, population: 1,
-      cost: { production: 28 }, maxMoves: 2,
+      cost: { production: 28 }, maxMoves: 2, maxHealth: 60, attack: 14, defense: 6,
       description: "Ходит на 2 клетки за ход и открывает область 3×3"
     },
     warrior: {
       name: "Воин", icon: "🛡️", mapIcon: "⚔️", tech: "mining", population: 2,
-      cost: { production: 34 }, maxMoves: 1,
-      description: "Исследует земли; бои появятся вместе с соперником"
+      cost: { production: 34 }, maxMoves: 1, maxHealth: 100, attack: 28, defense: 14,
+      description: "Основной ранний боевой юнит против варваров"
     },
     settler: {
       name: "Поселенец", icon: "⛺", mapIcon: "🧳", tech: "trade", population: 4,
-      cost: { production: 52, gold: 15 }, maxMoves: 1,
+      cost: { production: 52, gold: 15 }, maxMoves: 1, maxHealth: 70, attack: 4, defense: 4,
       description: "Основывает форпост и расширяет территорию"
     }
   };
+
+
+
+  const BARBARIAN = { campHealth: 140, raiderHealth: 75, raiderAttack: 20, raiderDefense: 10, maxRaiders: 18, graceTurns: 10 };
+  const INTEREST_TYPES = {
+    ruins: { name: "Древние руины", icon: "⌁" }, depot: { name: "Заброшенный склад", icon: "▣" }, grove: { name: "Священная роща", icon: "♧" },
+    mine: { name: "Старая шахта", icon: "◇" }, caravan: { name: "Потерянный караван", icon: "⊙" }, cave: { name: "Пещера", icon: "△" },
+    tower: { name: "Башня древнего мага", icon: "♜" }, temple: { name: "Разрушенный храм", icon: "✦" }
+  };
+  const ARTIFACT_BONUSES = [
+    { id: "science", name: "+1 наука за ход" }, { id: "gold", name: "+1 золото за ход" }, { id: "production", name: "+1 производство за ход" },
+    { id: "scoutSight", name: "Разведчики видят на 1 клетку дальше" }, { id: "militaryHealth", name: "Новые военные юниты получают +10 здоровья" }
+  ];
 
   const TECHS = {
     agriculture: {
@@ -1301,113 +1327,141 @@
   }
 
   function createTile(terrain) {
-    return { terrain: terrain, revealed: false, improvement: null, feature: null };
+    return { terrain: terrain, revealed: false, improvement: null, feature: null, poi: null, camp: null, pillaged: false };
   }
 
-  function generateMap() {
+  function mapSizeCells(targetState) {
+    const source = targetState || state;
+    if (source && source.mapSize) return source.mapSize;
+    if (source && Array.isArray(source.map)) return source.map.length;
+    return DEFAULT_MAP_SIZE;
+  }
+
+  function neighborsOf(x, y, size) {
+    const list = [];
+    for (let yy = Math.max(0, y - 1); yy <= Math.min(size - 1, y + 1); yy++) {
+      for (let xx = Math.max(0, x - 1); xx <= Math.min(size - 1, x + 1); xx++) {
+        if (xx !== x || yy !== y) list.push({ x: xx, y: yy });
+      }
+    }
+    return list;
+  }
+
+  function generateMap(size) {
+    size = size || DEFAULT_MAP_SIZE;
     const grid = [];
-    for (let y = 0; y < MAP_SIZE; y++) {
+    for (let y = 0; y < size; y++) {
       const row = [];
-      for (let x = 0; x < MAP_SIZE; x++) {
-        const edge = x === 0 || y === 0 || x === MAP_SIZE - 1 || y === MAP_SIZE - 1;
+      for (let x = 0; x < size; x++) {
+        const edge = x < 2 || y < 2 || x > size - 3 || y > size - 3;
         const r = Math.random();
-        let terrain;
-        if (edge && r < .42) terrain = "water";
-        else if (r < .18) terrain = "water";
-        else if (r < .44) terrain = "plains";
-        else if (r < .67) terrain = "forest";
-        else if (r < .86) terrain = "hill";
-        else terrain = "desert";
+        let terrain = edge && r < .55 ? "water" : (r < .16 ? "water" : r < .45 ? "plains" : r < .66 ? "forest" : r < .82 ? "hill" : r < .94 ? "desert" : (r < .97 ? "swamp" : "dead"));
         row.push(createTile(terrain));
       }
       grid.push(row);
     }
-
-    const cx = 6;
-    const cy = 6;
-    const fixed = [
-      [0, 0, "plains"], [-1, 0, "forest"], [1, 0, "hill"], [0, -1, "plains"],
-      [0, 1, "plains"], [-1, -1, "water"], [1, -1, "forest"], [-1, 1, "hill"], [1, 1, "desert"]
-    ];
-    fixed.forEach(function (item) {
-      grid[cy + item[1]][cx + item[0]] = createTile(item[2]);
-    });
-    grid[cy][cx - 1].feature = "ore";
-    grid[cy][cx + 1].feature = "ore";
-    grid[cy - 1][cx].feature = "wheat";
-    grid[cy - 1][cx - 1].feature = "fish";
-
-    for (let y = 0; y < MAP_SIZE; y++) {
-      for (let x = 0; x < MAP_SIZE; x++) {
-        if (Math.abs(x - cx) <= 1 && Math.abs(y - cy) <= 1) continue;
-        const tile = grid[y][x];
-        const r = Math.random();
-        if (tile.terrain === "water" && r < .16) tile.feature = "fish";
-        else if (tile.terrain === "plains" && r < .12) tile.feature = "wheat";
-        else if (tile.terrain === "hill" && r < .15) tile.feature = "ore";
-        else if ((tile.terrain === "desert" || tile.terrain === "hill") && r < .05) tile.feature = "gems";
-        else if (tile.terrain !== "water" && r > .965) tile.feature = "ruins";
+    for (let pass = 0; pass < 4; pass++) {
+      const next = grid.map(function (row) { return row.map(function (tile) { return createTile(tile.terrain); }); });
+      for (let y = 1; y < size - 1; y++) for (let x = 1; x < size - 1; x++) {
+        const counts = {};
+        neighborsOf(x, y, size).forEach(function (n) { counts[grid[n.y][n.x].terrain] = (counts[grid[n.y][n.x].terrain] || 0) + 1; });
+        const best = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })[0];
+        if (counts[best] >= (pass < 2 ? 4 : 5) && Math.random() < .72) next[y][x].terrain = best;
+      }
+      for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) grid[y][x] = next[y][x];
+    }
+    for (let i = 0; i < Math.max(5, Math.floor(size / 4)); i++) {
+      let x = 2 + Math.floor(Math.random() * (size - 4));
+      let y = 2 + Math.floor(Math.random() * (size - 4));
+      for (let step = 0; step < Math.floor(size * .9); step++) {
+        grid[y][x].terrain = "hill";
+        x = clamp(x + randomChoice([-1, 0, 1]), 1, size - 2);
+        y = clamp(y + randomChoice([-1, 0, 1]), 1, size - 2);
       }
     }
+    const cx = Math.floor(size / 2), cy = Math.floor(size / 2);
+    [[0,0,"plains"],[-1,0,"forest"],[1,0,"hill"],[0,-1,"plains"],[0,1,"plains"],[-1,-1,"water"],[1,-1,"forest"],[-1,1,"hill"],[1,1,"desert"],[-2,0,"plains"],[0,2,"forest"],[2,0,"hill"]].forEach(function (i) { grid[cy+i[1]][cx+i[0]] = createTile(i[2]); });
+    grid[cy][cx - 1].feature = "ore"; grid[cy][cx + 1].feature = "ore"; grid[cy - 1][cx].feature = "wheat"; grid[cy - 1][cx - 1].feature = "fish";
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+      if (Math.abs(x - cx) <= 2 && Math.abs(y - cy) <= 2) continue;
+      const tile = grid[y][x], r = Math.random();
+      if (tile.terrain === "water" && r < .18) tile.feature = "fish";
+      else if (tile.terrain === "plains" && r < .13) tile.feature = "wheat";
+      else if (tile.terrain === "hill" && r < .17) tile.feature = "ore";
+      else if ((tile.terrain === "desert" || tile.terrain === "hill") && r < .055) tile.feature = "gems";
+    }
+    placePointsOfInterest(grid, size, cx, cy);
+    placeCamps(grid, size, cx, cy);
     return grid;
   }
 
-  function createNewGame() {
+  function passableTile(tile) { return tile && tile.terrain !== "water"; }
+  function poiTargetCount(size) { return Math.round(size * size / 39); }
+  function campTargetCount(size) { return size < 24 ? 3 : size < 32 ? 5 : 7; }
+  function farFromExisting(grid, x, y, prop, minDist) {
+    for (let yy = 0; yy < grid.length; yy++) for (let xx = 0; xx < grid.length; xx++) if (grid[yy][xx][prop] && chebyshev(x,y,xx,yy) < minDist) return false;
+    return true;
+  }
+  function placePointsOfInterest(grid, size, cx, cy) {
+    const ids = Object.keys(INTEREST_TYPES); let placed = 0, tries = 0, target = poiTargetCount(size);
+    while (placed < target && tries++ < size * size * 4) {
+      const x = 2 + Math.floor(Math.random() * (size - 4)), y = 2 + Math.floor(Math.random() * (size - 4));
+      const tile = grid[y][x];
+      if (!passableTile(tile) || chebyshev(x,y,cx,cy) < 4 || !farFromExisting(grid,x,y,"poi",4)) continue;
+      tile.poi = { type: ids[placed % ids.length], used: false }; placed++;
+    }
+  }
+  function placeCamps(grid, size, cx, cy) {
+    let placed = 0, tries = 0, target = campTargetCount(size);
+    while (placed < target && tries++ < size * size * 3) {
+      const x = 2 + Math.floor(Math.random() * (size - 4)), y = 2 + Math.floor(Math.random() * (size - 4));
+      const tile = grid[y][x];
+      if (!passableTile(tile) || chebyshev(x,y,cx,cy) < 8 || !farFromExisting(grid,x,y,"camp",6)) continue;
+      tile.camp = { hp: BARBARIAN.campHealth, maxHp: BARBARIAN.campHealth, nextSpawn: 5 + Math.floor(Math.random() * 4) }; placed++;
+    }
+  }
+
+  function createNewGame(size) {
+    size = size || DEFAULT_MAP_SIZE;
+    const cx = Math.floor(size / 2), cy = Math.floor(size / 2);
     const newState = {
-      version: 2,
-      turn: 1,
-      map: generateMap(),
-      city: { x: 6, y: 6, name: "Ардена", population: 1, buildings: [], queue: null },
-      units: [{ id: "u1", type: "scout", x: 6, y: 5, moves: 2, acted: false }],
-      nextUnitId: 2,
-      settlements: [],
-      resources: { food: 6, production: 14, gold: 8, science: 4 },
-      researched: [],
-      currentResearch: "agriculture",
-      victory: false,
-      history: [],
-      eventCounter: 0
+      version: 3, mapSize: size, turn: 1, map: generateMap(size),
+      city: { x: cx, y: cy, name: "Ардена", population: 1, buildings: [], queue: null, damage: 0 },
+      units: [{ id: "u1", type: "scout", x: cx, y: cy - 1, moves: 2, acted: false, hp: 60, maxHp: 60 }],
+      barbarians: [], nextUnitId: 2, nextBarbarianId: 1, settlements: [], artifacts: [], permanentBonuses: {},
+      resources: { food: 6, production: 14, gold: 8, science: 4 }, researched: [], currentResearch: "agriculture", victory: false, history: [], eventCounter: 0
     };
-    revealAround(newState, newState.city.x, newState.city.y, 2);
-    revealAround(newState, 6, 5, 1);
+    revealAround(newState, newState.city.x, newState.city.y, 2); revealAround(newState, cx, cy - 1, 1);
     return newState;
   }
 
   function validState(candidate) {
-    return candidate && Array.isArray(candidate.map) && candidate.map.length === MAP_SIZE &&
-      candidate.city && candidate.resources && Array.isArray(candidate.researched);
+    return candidate && Array.isArray(candidate.map) && candidate.map.length >= 8 && candidate.city && candidate.resources && Array.isArray(candidate.researched);
   }
 
   function migrateState(candidate) {
     if (!validState(candidate)) return null;
+    candidate.mapSize = candidate.mapSize || candidate.map.length;
+    candidate.map.forEach(function (row) { row.forEach(function (tile) { if (tile.pillaged === undefined) tile.pillaged = false; if (tile.poi === undefined) tile.poi = null; if (tile.camp === undefined) tile.camp = null; }); });
     if (!Array.isArray(candidate.units)) {
       const oldScout = candidate.scout || { x: candidate.city.x, y: candidate.city.y - 1, moved: false };
-      candidate.units = [{
-        id: "u1", type: "scout", x: oldScout.x, y: oldScout.y,
-        moves: oldScout.moved ? 0 : 2, acted: false
-      }];
+      candidate.units = [{ id: "u1", type: "scout", x: oldScout.x, y: oldScout.y, moves: oldScout.moved ? 0 : 2, acted: false }];
     }
     candidate.units.forEach(function (unit, index) {
-      if (!unit.id) unit.id = "u" + (index + 1);
-      if (!UNIT_DEFS[unit.type]) unit.type = "scout";
-      if (typeof unit.moves !== "number") unit.moves = UNIT_DEFS[unit.type].maxMoves;
-      if (typeof unit.acted !== "boolean") unit.acted = false;
+      if (!unit.id) unit.id = "u" + (index + 1); if (!UNIT_DEFS[unit.type]) unit.type = "scout";
+      const def = UNIT_DEFS[unit.type]; if (typeof unit.moves !== "number") unit.moves = def.maxMoves; if (typeof unit.acted !== "boolean") unit.acted = false;
+      if (typeof unit.maxHp !== "number") unit.maxHp = def.maxHealth || 60; if (typeof unit.hp !== "number") unit.hp = unit.maxHp;
     });
+    if (!Array.isArray(candidate.barbarians)) candidate.barbarians = [];
+    if (!candidate.nextBarbarianId) candidate.nextBarbarianId = 1;
+    if (!Array.isArray(candidate.artifacts)) candidate.artifacts = [];
+    if (!candidate.permanentBonuses) candidate.permanentBonuses = {};
     if (!Array.isArray(candidate.settlements)) candidate.settlements = [];
-    if (!candidate.city.buildings) candidate.city.buildings = [];
+    if (!candidate.city.buildings) candidate.city.buildings = []; if (candidate.city.damage === undefined) candidate.city.damage = 0;
     if (candidate.city.queue === undefined) candidate.city.queue = null;
-    if (!candidate.nextUnitId) {
-      const maxId = candidate.units.reduce(function (max, unit) {
-        const value = Number(String(unit.id).replace(/\D/g, "")) || 0;
-        return Math.max(max, value);
-      }, 0);
-      candidate.nextUnitId = maxId + 1;
-    }
-    if (!Array.isArray(candidate.history)) candidate.history = [];
-    if (typeof candidate.victory !== "boolean") candidate.victory = false;
-    candidate.version = 2;
-    delete candidate.scout;
-    return candidate;
+    if (!candidate.nextUnitId) candidate.nextUnitId = candidate.units.reduce(function (max, unit) { return Math.max(max, Number(String(unit.id).replace(/\D/g, "")) || 0); }, 0) + 1;
+    if (!Array.isArray(candidate.history)) candidate.history = []; if (typeof candidate.victory !== "boolean") candidate.victory = false;
+    candidate.version = 3; delete candidate.scout; return candidate;
   }
 
   function safeGet(key) {
@@ -1524,8 +1578,8 @@
     const firstTile = mapEl.querySelector(".tile");
     const mapStyle = getComputedStyle(mapEl);
     const gap = parseFloat(mapStyle.columnGap) || 0;
-    const tileWidth = firstTile ? firstTile.offsetWidth : mapSize().width / MAP_SIZE;
-    const tileHeight = firstTile ? firstTile.offsetHeight : mapSize().height / MAP_SIZE;
+    const tileWidth = firstTile ? firstTile.offsetWidth : mapSize().width / mapSizeCells();
+    const tileHeight = firstTile ? firstTile.offsetHeight : mapSize().height / mapSizeCells();
     return {
       x: x * (tileWidth + gap) + tileWidth / 2,
       y: y * (tileHeight + gap) + tileHeight / 2
@@ -1576,8 +1630,8 @@
   }
 
   function revealAround(targetState, x, y, radius) {
-    for (let yy = Math.max(0, y - radius); yy <= Math.min(MAP_SIZE - 1, y + radius); yy++) {
-      for (let xx = Math.max(0, x - radius); xx <= Math.min(MAP_SIZE - 1, x + radius); xx++) {
+    for (let yy = Math.max(0, y - radius); yy <= Math.min(mapSizeCells(targetState) - 1, y + radius); yy++) {
+      for (let xx = Math.max(0, x - radius); xx <= Math.min(mapSizeCells(targetState) - 1, x + radius); xx++) {
         targetState.map[yy][xx].revealed = true;
       }
     }
@@ -1656,12 +1710,12 @@
   }
 
   function calculateIncome() {
-    const income = { food: 2 + Math.floor(state.city.population / 2), production: 2, gold: 1, science: 2 };
+    const income = { food: 2 + Math.floor(state.city.population / 2), production: 2 + (state.permanentBonuses.production || 0), gold: 1 + (state.permanentBonuses.gold || 0), science: 2 + (state.permanentBonuses.science || 0) };
     addYield(income, TERRAIN[state.map[state.city.y][state.city.x].terrain].base);
 
     state.map.forEach(function (row) {
       row.forEach(function (tile) {
-        if (!tile.improvement) return;
+        if (!tile.improvement || tile.pillaged) return;
         addYield(income, TERRAIN[tile.terrain].base);
         addYield(income, IMPROVEMENTS[tile.improvement].yield);
         if (tile.feature && tile.feature !== "ruins") addYield(income, FEATURES[tile.feature].bonus);
@@ -1693,7 +1747,7 @@
   function getTileYield(tile) {
     const result = emptyYield();
     addYield(result, TERRAIN[tile.terrain].base);
-    if (tile.improvement) addYield(result, IMPROVEMENTS[tile.improvement].yield);
+    if (tile.improvement && !tile.pillaged) addYield(result, IMPROVEMENTS[tile.improvement].yield);
     if (tile.feature && tile.feature !== "ruins" && tile.improvement) addYield(result, FEATURES[tile.feature].bonus);
     return result;
   }
@@ -1707,6 +1761,43 @@
     return parts.length ? parts.join(" ") : "нет дохода";
   }
 
+
+  function healthBar(hp, maxHp) {
+    const bar = document.createElement("span");
+    bar.className = "hp-bar";
+    const fill = document.createElement("span");
+    fill.style.width = Math.max(0, Math.min(100, hp / Math.max(1, maxHp) * 100)) + "%";
+    if (hp / Math.max(1, maxHp) < .45) fill.style.background = "#d36a54";
+    bar.appendChild(fill);
+    return bar;
+  }
+
+  function barbarianAt(x, y) { return (state.barbarians || []).find(function (b) { return b.x === x && b.y === y && b.hp > 0; }) || null; }
+  function campAt(x, y) { const tile = state.map[y] && state.map[y][x]; return tile && tile.camp && tile.camp.hp > 0 ? tile.camp : null; }
+  function defenseBonus(x, y) { const tile = state.map[y][x]; let bonus = 0; if (tile.terrain === "forest") bonus += 3; if (tile.terrain === "hill") bonus += 4; if (settlementAt(x,y)) bonus += 5; if (tile.improvement && !tile.pillaged) bonus += 2; return bonus; }
+  function canAttack(unit, x, y) { return unit && unit.moves > 0 && (UNIT_DEFS[unit.type].attack || 0) > 0 && isAdjacent(unit.x, unit.y, x, y) && (barbarianAt(x,y) || campAt(x,y)); }
+  function damageAmount(base, defense) { return Math.max(4, Math.round((base - defense * .35) * (.85 + Math.random() * .3))); }
+  function killUnit(unit) { state.units = state.units.filter(function (u) { return u.id !== unit.id; }); if (selectedUnitId === unit.id) selectedUnitId = state.units.length ? state.units[0].id : null; }
+  function maybeAddArtifact(reason) { if (Math.random() > .18 && reason !== "poi") return false; const bonus = randomChoice(ARTIFACT_BONUSES); const art = { name: "Артефакт " + (state.artifacts.length + 1), bonus: bonus.id, text: bonus.name }; state.artifacts.push(art); state.permanentBonuses[bonus.id] = (state.permanentBonuses[bonus.id] || 0) + 1; state.history.unshift("Ход " + state.turn + ": найден артефакт — " + bonus.name + "."); return true; }
+  function attackEnemy(unitId, x, y) {
+    const unit = getUnit(unitId); if (!canAttack(unit, x, y)) return;
+    const def = UNIT_DEFS[unit.type]; const barb = barbarianAt(x,y); const camp = campAt(x,y); const target = barb || camp;
+    target.hp -= damageAmount(def.attack || 8, barb ? BARBARIAN.raiderDefense + defenseBonus(x,y) : 8);
+    unit.moves = 0; unit.acted = true;
+    let msg = def.name + " атакует.";
+    if (target.hp <= 0) {
+      if (barb) { state.barbarians = state.barbarians.filter(function (b) { return b.id !== barb.id; }); msg = "Варвар повержен."; }
+      else { state.map[y][x].camp = null; state.resources.gold += 25; if (maybeAddArtifact("camp")) msg = "Лагерь уничтожен: +25 золота и артефакт."; else msg = "Лагерь уничтожен: +25 золота."; }
+      if (!unitsAt(x,y).length && passableTile(state.map[y][x])) { unit.x = x; unit.y = y; revealAround(state,x,y, unit.type === "scout" ? scoutSight() : 1); }
+    } else if (barb && isAdjacent(unit.x, unit.y, barb.x, barb.y)) {
+      unit.hp -= damageAmount(BARBARIAN.raiderAttack * .55, (def.defense || 0) + defenseBonus(unit.x, unit.y));
+      msg += " Ответный удар: здоровье " + Math.max(0, Math.ceil(unit.hp)) + "/" + unit.maxHp + ".";
+      if (unit.hp <= 0) { killUnit(unit); msg = "Юнит погиб в бою."; }
+    }
+    showToast(msg, 2800); render();
+  }
+  function scoutSight() { return 1 + (state.permanentBonuses.scoutSight || 0); }
+
   function render() {
     if (selectedUnitId && !getUnit(selectedUnitId)) selectedUnitId = state.units.length ? state.units[0].id : null;
     renderMap();
@@ -1719,9 +1810,10 @@
   function renderMap() {
     const fragment = document.createDocumentFragment();
     mapEl.innerHTML = "";
+    mapEl.style.setProperty("--map-size", mapSizeCells());
 
-    for (let y = 0; y < MAP_SIZE; y++) {
-      for (let x = 0; x < MAP_SIZE; x++) {
+    for (let y = 0; y < mapSizeCells(); y++) {
+      for (let x = 0; x < mapSizeCells(); x++) {
         const tile = state.map[y][x];
         const button = document.createElement("button");
         button.className = "tile";
@@ -1743,10 +1835,12 @@
           }
           if (tile.improvement) {
             const improvement = document.createElement("span");
-            improvement.className = "improvement";
-            improvement.textContent = IMPROVEMENTS[tile.improvement].icon;
+            improvement.className = "improvement" + (tile.pillaged ? " pillaged" : "");
+            improvement.textContent = tile.pillaged ? "✕" : IMPROVEMENTS[tile.improvement].icon;
             button.appendChild(improvement);
           }
+          if (tile.poi && !tile.poi.used) { const poi = document.createElement("span"); poi.className = "piece poi"; poi.textContent = INTEREST_TYPES[tile.poi.type].icon; button.appendChild(poi); }
+          if (tile.camp && tile.camp.hp > 0) { const camp = document.createElement("span"); camp.className = "piece camp"; camp.textContent = "♜"; button.appendChild(camp); button.appendChild(healthBar(tile.camp.hp, tile.camp.maxHp)); }
         }
 
         if (state.city.x === x && state.city.y === y) {
@@ -1771,6 +1865,7 @@
           piece.className = "piece unit unit-" + shown.type + (shown.id === selectedUnitId ? " is-selected" : "");
           piece.textContent = UNIT_DEFS[shown.type].mapIcon;
           button.appendChild(piece);
+          if (shown.hp < shown.maxHp) button.appendChild(healthBar(shown.hp, shown.maxHp));
           if (tileUnits.length > 1) {
             const count = document.createElement("span");
             count.className = "unit-count";
@@ -1779,9 +1874,12 @@
           }
         }
 
+        const barb = barbarianAt(x, y);
+        if (barb && tile.revealed) { const enemy = document.createElement("span"); enemy.className = "piece enemy"; enemy.textContent = "⚔"; button.appendChild(enemy); button.appendChild(healthBar(barb.hp, barb.maxHp)); }
         if (selected && selected.x === x && selected.y === y) button.classList.add("selected");
         const activeUnit = getUnit(selectedUnitId);
         if (activeUnit && activeUnit.x === x && activeUnit.y === y) button.classList.add("unit-active");
+        if (activeUnit && canAttack(activeUnit, x, y)) button.classList.add("attack-target");
         fragment.appendChild(button);
       }
     }
@@ -1852,7 +1950,9 @@
     } else {
       const extras = [];
       if (tile.feature) extras.push(FEATURES[tile.feature].name);
-      if (tile.improvement) extras.push(IMPROVEMENTS[tile.improvement].name);
+      if (tile.poi && !tile.poi.used) extras.push(INTEREST_TYPES[tile.poi.type].name);
+      if (tile.camp && tile.camp.hp > 0) extras.push("Варварский лагерь " + tile.camp.hp + "/" + tile.camp.maxHp);
+      if (tile.improvement) extras.push(IMPROVEMENTS[tile.improvement].name + (tile.pillaged ? " (разграблено)" : ""));
       if (outpost) extras.push(outpost.name);
       contextTitle.textContent = TERRAIN[tile.terrain].icon + " " + TERRAIN[tile.terrain].name;
       contextText.textContent = "Доход: " + yieldText(getTileYield(tile)) + (extras.length ? " · " + extras.join(" · ") : "");
@@ -1861,12 +1961,15 @@
     if (activeUnit && activeUnit.x === x && activeUnit.y === y) {
       const def = UNIT_DEFS[activeUnit.type];
       contextTitle.textContent = def.icon + " " + def.name;
-      contextText.textContent = def.description + " · ходов осталось: " + activeUnit.moves;
+      contextText.textContent = def.description + " · здоровье: " + Math.ceil(activeUnit.hp) + "/" + activeUnit.maxHp + " · атака: " + (def.attack || 0) + " · защита: " + (def.defense || 0) + " · ходов осталось: " + activeUnit.moves;
 
       if (activeUnit.type === "worker") {
         const improvementId = availableImprovement(tile);
-        const blocked = !tile.revealed || !inTerritory(x, y) || !!tile.improvement ||
+        const blocked = !tile.revealed || !inTerritory(x, y) || (!!tile.improvement && !tile.pillaged) ||
           (state.city.x === x && state.city.y === y) || !!outpost || activeUnit.acted;
+        if (tile.pillaged && tile.improvement && !activeUnit.acted && inTerritory(x,y)) {
+          contextActions.appendChild(actionButton("Ремонт<br>🔨 5", "alt", function () { repairImprovement(activeUnit.id); }, state.resources.production < 5));
+        }
         if (improvementId && !blocked) {
           const imp = IMPROVEMENTS[improvementId];
           contextActions.appendChild(actionButton(imp.icon + "<br>" + formatCost(imp.cost), "alt", function () {
@@ -1891,6 +1994,12 @@
       contextTitle.textContent = "🏛️ " + state.city.name;
       contextText.textContent = "Население " + state.city.population + " · территория " + territoryRadius() + " клетки";
       contextActions.appendChild(actionButton("Открыть<br>город", "", function () { openCity(); }, false));
+    }
+
+    const enemy = barbarianAt(x, y);
+    const camp = campAt(x, y);
+    if (activeUnit && canAttack(activeUnit, x, y)) {
+      contextActions.appendChild(actionButton("Атака<br>⚔", "danger", function () { attackEnemy(activeUnit.id, x, y); }, false));
     }
 
     if (activeUnit && canMoveUnitTo(activeUnit, x, y)) {
@@ -1926,7 +2035,9 @@
   function canMoveUnitTo(unit, x, y) {
     if (!unit || unit.moves <= 0) return false;
     if (!isAdjacent(unit.x, unit.y, x, y)) return false;
-    return state.map[y][x].terrain !== "water";
+    if (!passableTile(state.map[y][x])) return false;
+    if (barbarianAt(x, y) || campAt(x, y)) return false;
+    return true;
   }
 
   function moveUnit(unitId, x, y) {
@@ -1935,12 +2046,14 @@
     unit.x = x;
     unit.y = y;
     unit.moves -= 1;
-    const radius = unit.type === "scout" || unit.type === "warrior" ? 1 : 0;
+    const radius = unit.type === "scout" ? scoutSight() : (unit.type === "warrior" ? 1 : 0);
     state.map[y][x].revealed = true;
     revealAround(state, x, y, radius);
 
     const tile = state.map[y][x];
-    if (tile.feature === "ruins" && (unit.type === "scout" || unit.type === "warrior")) {
+    if (tile.poi && !tile.poi.used && (unit.type === "scout" || unit.type === "warrior")) {
+      explorePointOfInterest(tile, unit);
+    } else if (tile.feature === "ruins" && (unit.type === "scout" || unit.type === "warrior")) {
       exploreRuins(tile);
     } else {
       showToast(UNIT_DEFS[unit.type].name + " перемещён.");
@@ -1949,6 +2062,32 @@
     selectedUnitId = unit.id;
     render();
   }
+
+
+  function rewardResource(key, amount) { state.resources[key] = (state.resources[key] || 0) + amount; }
+  function explorePointOfInterest(tile, unit) {
+    const type = tile.poi.type, def = INTEREST_TYPES[type]; tile.poi.used = true;
+    let text = def.name + ": ";
+    if (type === "ruins") {
+      if (window.confirm("Древние руины: разобрать механизм ради науки? Отмена — продать находку за золото.")) { rewardResource("science", 14); text += "+14 науки."; } else { rewardResource("gold", 18); text += "+18 золота."; }
+    } else if (type === "grove") {
+      if (window.confirm("Священная роща: сохранить её? Отмена — вырубить ради производства.")) { state.permanentBonuses.science = (state.permanentBonuses.science || 0) + 1; text += "+1 наука за ход."; } else { rewardResource("production", 24); text += "+24 производства."; }
+    } else if (type === "cave") {
+      if (window.confirm("Пещера: войти внутрь? Отмена — оставить в покое.")) { if (Math.random() < .35) spawnAmbush(unit.x, unit.y); else { maybeAddArtifact("poi"); text += "найден артефакт."; } } else text += "вы оставили её в покое.";
+    } else {
+      const rewards = [{k:"gold",a:14,t:"+14 золота."},{k:"science",a:10,t:"+10 науки."},{k:"food",a:12,t:"+12 еды."},{k:"production",a:12,t:"+12 производства."},{k:"reveal",a:2,t:"открыты земли вокруг."},{k:"heal",a:25,t:"юнит вылечен."},{k:"worker",a:1,t:"найден рабочий."},{k:"artifact",a:1,t:"найден артефакт."},{k:"ambush",a:1,t:"засада варваров!"}];
+      let r = randomChoice(rewards); if (r.k === "worker" && Math.random() > .08) r = rewards[0];
+      if (["gold","science","food","production"].indexOf(r.k) !== -1) rewardResource(r.k, r.a);
+      else if (r.k === "reveal") revealAround(state, unit.x, unit.y, 3);
+      else if (r.k === "heal") unit.hp = Math.min(unit.maxHp, unit.hp + r.a);
+      else if (r.k === "worker") addUnit("worker");
+      else if (r.k === "artifact") maybeAddArtifact("poi");
+      else if (r.k === "ambush") spawnAmbush(unit.x, unit.y);
+      text += r.t;
+    }
+    state.history.unshift("Ход " + state.turn + ": исследовано место «" + def.name + "»."); showToast(text, 3600);
+  }
+  function spawnAmbush(x, y) { const n = neighborsOf(x,y,mapSizeCells()).find(function (p) { return passableTile(state.map[p.y][p.x]) && !unitsAt(p.x,p.y).length && !barbarianAt(p.x,p.y); }); if (n) state.barbarians.push({ id:"b" + state.nextBarbarianId++, x:n.x, y:n.y, hp:BARBARIAN.raiderHealth, maxHp:BARBARIAN.raiderHealth, homeX:x, homeY:y, last:null }); }
 
   function exploreRuins(tile) {
     const outcomes = [
@@ -1973,16 +2112,25 @@
     const def = IMPROVEMENTS[id];
     const coastalBuild = id === "harbor" && tile.terrain === "water" && isAdjacent(unit.x, unit.y, x, y);
     const standingBuild = unit.x === x && unit.y === y;
-    if (!def || (!standingBuild && !coastalBuild) || !tile.revealed || tile.improvement || !inTerritory(x, y) ||
+    if (!def || (!standingBuild && !coastalBuild) || !tile.revealed || tile.improvement && !tile.pillaged || !inTerritory(x, y) ||
         def.terrain.indexOf(tile.terrain) === -1 || (def.tech && !hasTech(def.tech)) ||
         !canAfford(def.cost) || (state.city.x === x && state.city.y === y) || settlementAt(x, y)) return;
-    pay(def.cost);
+    pay(tile.pillaged ? { production: 5 } : def.cost);
     tile.improvement = id;
+    tile.pillaged = false;
     unit.acted = true;
     unit.moves = 0;
     state.history.unshift("Ход " + state.turn + ": рабочий построил «" + def.name + "».");
     showToast(def.icon + " " + def.name + " построена. " + def.description + ".");
     render();
+  }
+
+
+  function repairImprovement(unitId) {
+    const unit = getUnit(unitId); if (!unit || unit.type !== "worker") return;
+    const tile = state.map[unit.y][unit.x]; if (!tile.pillaged || state.resources.production < 5) return;
+    state.resources.production -= 5; tile.pillaged = false; unit.acted = true; unit.moves = 0;
+    showToast("Улучшение восстановлено за 5 производства."); render();
   }
 
   function canFoundOutpost(unit) {
@@ -2095,9 +2243,11 @@
 
   function addUnit(type) {
     const id = "u" + state.nextUnitId++;
+    const def = UNIT_DEFS[type];
+    const militaryBonus = (type === "warrior" ? (state.permanentBonuses.militaryHealth || 0) * 10 : 0);
     state.units.push({
       id: id, type: type, x: state.city.x, y: state.city.y,
-      moves: 0, acted: false
+      moves: 0, acted: false, maxHp: (def.maxHealth || 60) + militaryBonus, hp: (def.maxHealth || 60) + militaryBonus
     });
     return id;
   }
@@ -2156,6 +2306,41 @@
     return grew;
   }
 
+
+  function nearestPlayerTarget(b) {
+    const targets = state.units.concat(state.settlements.map(function (o) { return { x:o.x, y:o.y, outpost:true }; })).concat([{ x:state.city.x, y:state.city.y, city:true }]);
+    targets.sort(function (a, c) { return chebyshev(b.x,b.y,a.x,a.y) - chebyshev(b.x,b.y,c.x,c.y); });
+    return targets[0];
+  }
+  function tryMoveBarbarian(b, target) {
+    const options = neighborsOf(b.x,b.y,mapSizeCells()).filter(function (p) { return passableTile(state.map[p.y][p.x]) && !barbarianAt(p.x,p.y) && !campAt(p.x,p.y); });
+    if (!options.length) return;
+    options.sort(function (a, c) { return chebyshev(a.x,a.y,target.x,target.y) - chebyshev(c.x,c.y,target.x,target.y); });
+    let next = options[0]; if (b.last && next.x === b.last.x && next.y === b.last.y && options[1]) next = options[1];
+    b.last = { x:b.x, y:b.y }; b.x = next.x; b.y = next.y;
+  }
+  function processBarbarians() {
+    if (state.turn < BARBARIAN.graceTurns) return "";
+    let actions = 0;
+    state.map.forEach(function (row, y) { row.forEach(function (tile, x) {
+      if (!tile.camp || tile.camp.hp <= 0) return; tile.camp.nextSpawn -= 1;
+      const nearby = (state.barbarians || []).filter(function (b) { return chebyshev(b.x,b.y,x,y) <= 3; }).length;
+      if (tile.camp.nextSpawn <= 0 && state.barbarians.length < BARBARIAN.maxRaiders && nearby < 3) {
+        const spot = neighborsOf(x,y,mapSizeCells()).find(function (p) { return passableTile(state.map[p.y][p.x]) && !barbarianAt(p.x,p.y) && !unitsAt(p.x,p.y).length; });
+        if (spot) { state.barbarians.push({ id:"b" + state.nextBarbarianId++, x:spot.x, y:spot.y, hp:BARBARIAN.raiderHealth, maxHp:BARBARIAN.raiderHealth, homeX:x, homeY:y, last:null }); actions++; }
+        tile.camp.nextSpawn = 5 + Math.floor(Math.random() * 4);
+      }
+    }); });
+    (state.barbarians || []).slice().forEach(function (b) {
+      const adjacent = state.units.find(function (u) { return isAdjacent(b.x,b.y,u.x,u.y); });
+      if (adjacent) { adjacent.hp -= damageAmount(BARBARIAN.raiderAttack, (UNIT_DEFS[adjacent.type].defense || 0) + defenseBonus(adjacent.x,adjacent.y)); if (adjacent.hp <= 0) killUnit(adjacent); actions++; return; }
+      const tile = state.map[b.y][b.x]; if (tile.improvement && !tile.pillaged) { tile.pillaged = true; actions++; return; }
+      if (state.city.x === b.x && state.city.y === b.y) { state.resources.gold = Math.max(0, state.resources.gold - 6); state.city.damage += 1; actions++; return; }
+      tryMoveBarbarian(b, nearestPlayerTarget(b)); actions++;
+    });
+    return actions ? " Варвары действуют: " + actions + "." : "";
+  }
+
   function randomEvent() {
     if (state.turn < 5 || state.turn % 5 !== 0 || Math.random() > .62) return null;
     const events = [
@@ -2185,6 +2370,7 @@
     const grew = applyGrowth();
     const completedTech = finishResearch();
     const eventText = randomEvent();
+    const barbarianText = processBarbarians();
     state.turn += 1;
     state.units.forEach(function (unit) {
       unit.moves = UNIT_DEFS[unit.type].maxMoves;
@@ -2197,6 +2383,7 @@
     if (completedTech) message = completedTech.icon + " Изучено: " + completedTech.name + ". " + message;
     if (completedProject) message = completedProject.text + " " + message;
     if (eventText) message = eventText + ". " + message;
+    if (barbarianText) message += barbarianText;
     showToast(message, 3600);
     render();
     endTurnBtn.disabled = false;
@@ -2380,15 +2567,14 @@
     }).join("");
 
     wikiContent.innerHTML =
-      '<div class="wiki-callout"><strong>Привет, Мика!</strong></div>' +
-      '<div class="section-title">Что изменилось в v1.2.1</div>' +
-      '<div class="wiki-callout"><strong>Теперь юниты настоящие.</strong> Разведчик только исследует. Рабочий должен стоять на нужной клетке, чтобы построить улучшение. В городе можно производить второго разведчика, рабочего, воина и поселенца.</div>' +
+      '<div class="section-title">Что изменилось в v1.3-alpha</div>' +
+      '<div class="wiki-callout"><strong>Большой мир, древние находки, варвары и первые сражения.</strong> Новые партии используют карту 28×28, а в меню новой игры можно выбрать 20×20, 28×28 или 36×36.</div>' +
       '<div class="section-title">Юниты и карта</div>' +
       '<div class="wiki-list">' +
         wikiRow("Выбор юнита", "Нажми клетку с юнитом. Голубая рамка показывает активного юнита. Затем нажми соседнюю клетку и кнопку «Идти». Если юнитов несколько, используй «Другой юнит».") +
         wikiRow("🧭 Разведчик", "Имеет 2 перемещения за ход. После каждого шага открывает область 3×3. Может исследовать древние руины.") +
         wikiRow("🧑‍🔧 Рабочий", "Имеет 1 перемещение. Строит сухопутное улучшение под собой, а гавань — на соседней водной клетке. Строить можно только внутри территории и один раз за ход; цена списывается из общего запаса.") +
-        wikiRow("🛡️ Воин", "Имеет 1 перемещение и исследует область вокруг себя. Пока не с кем сражаться; боевую систему добавим вместе с ИИ-соперником.") +
+        wikiRow("🛡️ Воин", "Имеет 1 перемещение, 100 здоровья и уверенно побеждает одиночных налётчиков, но получает ответный урон.") +
         wikiRow("⛺ Поселенец", "После технологии «Торговля» и при населении 4 может уйти за границы и основать форпост. Форпост даёт +1 🍞, +1 🔨, +1 🪙 и территорию радиусом 1.") +
         wikiRow("🏛️ Территория", "Радиус столицы: 1 клетка при населении 1–2, 2 при 3–5 и 3 при 6+. Каждый форпост добавляет собственный радиус 1.") +
       '</div>' +
@@ -2396,17 +2582,27 @@
       '<div class="wiki-callout">В городе одновременно создаётся только один проект: здание или юнит. Доход производства автоматически продвигает проект каждый конец хода. Накопленный запас 🔨 можно вложить мгновенно кнопкой в окне города.</div>' +
       '<details class="wiki-details" open><summary>Ресурсы</summary><div class="wiki-details-body"><div class="wiki-list">' + resources + '</div></div></details>' +
       '<details class="wiki-details"><summary>Юниты</summary><div class="wiki-details-body"><div class="card-list">' + units + '</div></div></details>' +
-      '<details class="wiki-details"><summary>Типы местности</summary><div class="wiki-details-body"><div class="wiki-list">' + terrain + '</div></div></details>' +
-      '<details class="wiki-details"><summary>Особенности клеток</summary><div class="wiki-details-body"><div class="wiki-list">' + features + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Размеры карты</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Маленькая", "20×20 для быстрых партий.") + wikiRow("Обычная", "28×28 по умолчанию для новых миров.") + wikiRow("Большая", "36×36 для долгого исследования; камера не ужимает карту целиком.") + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Типы местности и бонусы</summary><div class="wiki-details-body"><div class="wiki-list">' + terrain + wikiRow("Защита", "Лес, холмы/горы и форпосты дают небольшой защитный бонус в бою.") + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Точки интереса</summary><div class="wiki-details-body"><div class="wiki-list">' + Object.keys(INTEREST_TYPES).map(function (id) { return wikiRow(INTEREST_TYPES[id].icon + " " + INTEREST_TYPES[id].name, "Скрыта туманом войны. Исследующий юнит активирует награду, выбор или засаду один раз."); }).join("") + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Артефакты</summary><div class="wiki-details-body"><div class="wiki-list">' + ARTIFACT_BONUSES.map(function (a) { return wikiRow("✦", a.name); }).join("") + '</div></div></details>' +
+      '<details class="wiki-details"><summary>Варвары, бой и грабёж</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Лагеря", "На обычной новой карте появляется 4–7 лагерей вдали от столицы. Лагерь имеет 140 здоровья, создаёт налётчиков раз в 5–8 ходов и даёт золото за уничтожение.") + wikiRow("Порядок хода", "После кнопки «Завершить ход» сначала начисляются ресурсы игрока, затем лагеря и налётчики варваров выполняют короткий автоматический ход.") + wikiRow("Бой", "Атака по соседней вражеской клетке наносит урон; выживший защитник отвечает ослабленным ударом.") + wikiRow("Грабёж", "Налётчик на улучшении помечает его повреждённым. Рабочий восстанавливает разграбленное улучшение за 5 производства.") + '</div></div></details>' +
       '<details class="wiki-details"><summary>Улучшения клеток</summary><div class="wiki-details-body"><div class="card-list">' + improvements + '</div></div></details>' +
       '<details class="wiki-details"><summary>Здания города</summary><div class="wiki-details-body"><div class="card-list">' + buildings + '</div></div></details>' +
       '<details class="wiki-details"><summary>Технологии</summary><div class="wiki-details-body"><div class="card-list">' + techs + '</div></div></details>' +
       '<div class="section-title">Условие победы</div>' +
       '<div class="wiki-callout">Изучи «Государственность», вырасти до населения 6 и заверши 🏰 Дворец в городской очереди.</div>' +
       '<div class="section-title">Что ещё впереди</div>' +
-      '<div class="inline-note">Форпост пока не является полноценным вторым городом: у него нет собственного населения и очереди. Также пока нет ИИ-соперника, боёв, здоровья юнитов, дорог и дипломатии.</div>';
+      '<div class="inline-note">Форпост пока не является полноценным вторым городом: у него нет собственного населения и очереди. Варвары — первая нейтральная угроза; дипломатии и дорог пока нет.</div>';
 
     openModal("wikiModal");
+  }
+
+
+  function openArtifacts() {
+    const list = state.artifacts.length ? state.artifacts.map(function (a) { return '<div class="chip" style="width:100%">✦ ' + a.name + ': ' + a.text + '</div>'; }).join("") : '<div class="inline-note">Артефакты пока не найдены.</div>';
+    menuContent.innerHTML = '<div class="section-title">Артефакты</div><div class="built-list">' + list + '</div><div class="menu-actions" style="margin-top:12px"><button id="backMenu" class="wide-btn">Назад</button></div>';
+    document.getElementById("backMenu").addEventListener("click", openMenu);
   }
 
   function openMenu() {
@@ -2425,13 +2621,17 @@
       '</div>' +
       '<div class="section-title">Сохранение</div><div class="inline-note">' + saved + '</div>' +
       '<div class="section-title">Последние события</div><div class="built-list">' + history + '</div>' +
+      '<div class="section-title">Новый мир</div>' +
+      '<label class="inline-note" style="display:block">Размер карты: <select id="newMapSize" style="width:100%;margin-top:6px;padding:8px;border-radius:8px"><option value="small">маленькая — 20×20</option><option value="normal" selected>обычная — 28×28</option><option value="large">большая — 36×36</option></select></label>' +
       '<div class="section-title">Игра</div>' +
       '<div class="menu-actions">' +
+        '<button id="artifactsBtn" class="wide-btn secondary">✦ Артефакты</button>' +
         '<button id="wikiBtn" class="wide-btn secondary">📖 Вики: что на что влияет</button>' +
         '<button id="closeMenuWide" class="wide-btn">Продолжить</button>' +
         '<button id="newGameBtn" class="wide-btn danger">Начать новый мир</button>' +
       '</div>';
 
+    document.getElementById("artifactsBtn").addEventListener("click", openArtifacts);
     document.getElementById("wikiBtn").addEventListener("click", function () {
       closeModal("menuModal");
       openWiki();
@@ -2469,18 +2669,13 @@
 
   function newGameWithConfirmation(skipConfirm) {
     if (!skipConfirm && !window.confirm("Удалить текущее сохранение и создать новый мир?")) return;
-    state = createNewGame();
-    selected = null;
-    selectedUnitId = state.units[0].id;
-    camera = { x: 0, y: 0, scale: CAMERA_DEFAULT_SCALE };
-    cameraInitialized = false;
-    saveCamera();
-    closeModal("menuModal");
-    closeModal("wikiModal");
-    closeModal("victoryModal");
-    showToast("Новый мир создан. Начни с рабочего или разведки.");
-    render();
-    initializeCamera(true);
+    const selector = document.getElementById("newMapSize");
+    const choice = selector ? selector.value : "normal";
+    const size = MAP_SIZES[choice] || MAP_SIZES.normal;
+    state = createNewGame(size);
+    selected = null; selectedUnitId = state.units[0].id; camera = { x: 0, y: 0, scale: CAMERA_DEFAULT_SCALE }; cameraInitialized = false;
+    saveCamera(); closeModal("menuModal"); closeModal("wikiModal"); closeModal("victoryModal");
+    showToast("Новый мир " + size + "×" + size + " создан. Начни с разведки."); render(); initializeCamera(true);
   }
 
   function showToast(text, duration) {
@@ -2714,7 +2909,7 @@
     safeSet(UPDATE_KEY, "1");
     setTimeout(function () {
       openWiki();
-      showToast("v1.2.1: крупная карта, удобное масштабирование и контрастные юниты.", 3000);
+      showToast("v1.3-alpha: большой мир, древние находки, варвары и первые сражения", 3000);
     }, 250);
   } else if (state.victory) {
     setTimeout(openVictory, 250);
