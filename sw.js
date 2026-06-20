@@ -1,4 +1,4 @@
-const CACHE_NAME = "epohi-v1-3-3-save-fixes-cache";
+const CACHE_NAME = "epohi-v1-3-4-unified-saves-cache";
 const APP_FILES = [
   "./",
   "./index.html",

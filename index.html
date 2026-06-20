@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-  <title>Эпохи v1.3.3 — пошаговая стратегия</title>
+  <title>Эпохи v1.3.4 — пошаговая стратегия</title>
   <style>
     :root {
       --bg: #18231c;
@@ -855,7 +855,16 @@
       height: 100dvh; max-height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
       padding-bottom: 0; touch-action: pan-y;
     }
-    .saves-panel .screen-head { flex: 0 0 auto; position: sticky; top: 0; z-index: 2; }
+    .saves-panel .screen-head { flex: 0 0 auto; position: sticky; top: 0; z-index: 2; align-items: flex-start; }
+    .saves-title { min-width: 0; display: grid; gap: 2px; }
+    .saves-title h2 { font-size: clamp(25px, 7vw, 31px); line-height: 1; }
+    .saves-title small {
+      max-width: 100%; color: #d8dfd3; font-size: 12px; font-weight: 800; line-height: 1.25;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .saves-panel .screen-head .menu-primary { flex: 0 0 auto; min-height: 42px; padding: 8px 10px; }
+    .saves-actions { flex: 0 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 10px; }
+    .saves-actions .menu-primary { min-height: 42px; font-size: 12px; padding: 8px; }
     .saves-scroll {
       flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
       -webkit-overflow-scrolling: touch; touch-action: pan-y;
@@ -1055,7 +1064,7 @@
     <header class="topbar">
       <div class="brand">
         <h1>Эпохи</h1>
-        <p id="subtitle">От племени к империи · v1.3.3</p>
+        <p id="subtitle">От племени к империи · v1.3.4</p>
       </div>
       <div class="turn-card">
         <small id="eraLabel">Племя</small>
@@ -1158,12 +1167,12 @@
 
   const DEFAULT_MAP_SIZE = 28;
   const MAP_SIZES = { small: 20, normal: 28, large: 36 };
-  const GAME_VERSION = "v1.3.3";
+  const GAME_VERSION = "v1.3.4";
   const SAVE_SCHEMA_VERSION = 4;
   const SAVE_KEY = "mika-epohi-v1-state";
   const CAMERA_KEY = "mika-epohi-v12-camera";
   const TUTORIAL_KEY = "mika-epohi-v1-seen";
-  const UPDATE_KEY = "mika-epohi-v133-save-fixes-seen";
+  const UPDATE_KEY = "mika-epohi-v134-unified-saves-seen";
   const DB_NAME = "epohi-game-db";
   const CAMPAIGN_STORE = "campaigns";
   const SAVE_STORE = "saves";
@@ -2837,11 +2846,11 @@
     Promise.all([getCampaigns(), storageEstimateKb()]).then(function(res) {
       const campaigns = res[0].sort(function(a,b){ return String(b.lastPlayedAt).localeCompare(String(a.lastPlayedAt)); }); const approx = res[1];
       const cards = campaigns.length ? campaigns.map(function(c){ return '<article class="slot-card" data-campaign="'+c.campaignId+'"><strong>'+escapeHtml(c.name)+'</strong><small id="line-'+c.campaignId+'">'+c.mapSize+'×'+c.mapSize+' · '+formatDate(c.lastPlayedAt)+'</small><div class="slot-actions"><button data-continue="'+c.campaignId+'" class="menu-primary">Продолжить</button><button data-saves="'+c.campaignId+'" class="menu-primary secondary">Сохранения</button><button data-rename-campaign="'+c.campaignId+'" class="menu-primary secondary">Переименовать</button><button data-delete-campaign="'+c.campaignId+'" class="menu-primary danger">Удалить</button></div></article>'; }).join('') : '<div class="menu-hint">Партий пока нет. Создайте новый мир.</div>';
-      renderScreen('<h1 class="menu-title">ЭПОХИ</h1><p class="menu-version">v1.3.3</p>' + (storageWarning ? '<div class="screen-note">'+escapeHtml(storageWarning)+'</div>' : '') + '<div class="menu-hint">v1.3.3: исправлены автосохранения, прокрутка списка и разделение новых партий.<br>Примерный размер данных: '+approx+' КБ.</div><div class="menu-stack"><button id="newGameScreenBtn" class="menu-primary">Новая игра</button><button id="wikiScreenBtn" class="menu-primary secondary">Вики</button><button id="settingsScreenBtn" class="menu-primary ghost">Настройки</button></div><div class="section-title">Партии</div><div class="slot-list">'+cards+'</div>');
+      renderScreen('<h1 class="menu-title">ЭПОХИ</h1><p class="menu-version">v1.3.4</p>' + (storageWarning ? '<div class="screen-note">'+escapeHtml(storageWarning)+'</div>' : '') + '<div class="menu-hint">v1.3.4: единый удобный экран сохранений внутри игры и главного меню.<br>Примерный размер данных: '+approx+' КБ.</div><div class="menu-stack"><button id="newGameScreenBtn" class="menu-primary">Новая игра</button><button id="wikiScreenBtn" class="menu-primary secondary">Вики</button><button id="settingsScreenBtn" class="menu-primary ghost">Настройки</button></div><div class="section-title">Партии</div><div class="slot-list">'+cards+'</div>');
       campaigns.forEach(function(c){ getCampaignSaves(c.campaignId).then(function(saves){ const latest=saves[0]; const el=document.getElementById('line-'+c.campaignId); if(el) el.textContent = campaignLine(c, saves.length, latest && latest.turn); }); });
       document.getElementById("newGameScreenBtn").onclick = openNewGameScreen; document.getElementById("wikiScreenBtn").onclick = function(){ setScreen("wiki"); openWiki(); document.querySelector('#wikiModal .close-btn').onclick = function(){ closeModal('wikiModal'); openMainMenu(); }; }; document.getElementById("settingsScreenBtn").onclick = openSettingsScreen;
       screenRoot.querySelectorAll('[data-continue]').forEach(function(b){ b.onclick=function(){ continueCampaign(b.dataset.continue); }; });
-      screenRoot.querySelectorAll('[data-saves]').forEach(function(b){ b.onclick=function(){ openCampaignSavesScreen(b.dataset.saves, false); }; });
+      screenRoot.querySelectorAll('[data-saves]').forEach(function(b){ b.onclick=function(){ openCampaignSavesScreen(b.dataset.saves, 'main-menu'); }; });
       screenRoot.querySelectorAll('[data-rename-campaign]').forEach(function(b){ b.onclick=function(){ getCampaign(b.dataset.renameCampaign).then(function(c){ const n=prompt('Новое название партии', c.name); if(!n) return; c.name=n.trim(); putCampaign(c).then(openMainMenu); }); }; });
       screenRoot.querySelectorAll('[data-delete-campaign]').forEach(function(b){ b.onclick=function(){ if(confirm('Удалить партию и все её сохранения?') && confirm('Точно удалить без возможности восстановления?')) deleteCampaign(b.dataset.deleteCampaign).then(openMainMenu); }; });
     });
@@ -2866,21 +2875,37 @@
     return '<article class="slot-card"><strong>'+saveTypeLabel(s.type)+': '+escapeHtml(s.name)+'</strong><small>ход '+s.turn+' · '+formatDate(s.updatedAt)+branch+'</small><div class="slot-actions"><button data-load-save="'+s.saveId+'" class="menu-primary">Загрузить</button>'+(s.type==='manual'?'<button data-rename-save="'+s.saveId+'" class="menu-primary secondary">Переименовать</button><button data-delete-save="'+s.saveId+'" class="menu-primary danger">Удалить</button>':'')+'</div></article>';
   }
 
-  function openCampaignSavesScreen(campaignId, inGame) {
-    if (!inGame) setScreen("load-game");
+  function openCampaignSavesScreen(campaignId, source) {
+    const returnTarget = source === 'playing' || source === true ? 'playing' : 'main-menu';
+    setScreen(returnTarget === 'playing' ? 'save-manager' : 'load-game');
+    closeModal('menuModal');
     getCampaign(campaignId).then(function(c){ return getCampaignSaves(campaignId).then(function(saves){
       const byDate = function(a,b){ return String(b.updatedAt).localeCompare(String(a.updatedAt)); };
       const manual = saves.filter(function(s){ return s.type === 'manual'; }).sort(byDate);
       const quick = saves.filter(function(s){ return s.type === 'quicksave'; }).sort(byDate);
       const autos = saves.filter(function(s){ return s.type === 'autosave'; }).sort(function(a,b){ return String(a.name).localeCompare(String(b.name)) || byDate(a,b); }).slice(0, 3);
+      const actionsHtml = returnTarget === 'playing' ? '<div class="saves-actions"><button id="saveQuickFromManager" class="menu-primary">Быстро сохранить</button><button id="saveManualFromManager" class="menu-primary secondary">Создать ручное сохранение</button></div>' : '';
       const listHtml = '<div class="saves-scroll"><div class="slot-list">' + manual.map(saveCardHtml).join('') + quick.map(saveCardHtml).join('') +
         '<details class="save-group"><summary>Автосохранения — '+autos.length+'</summary><div class="slot-list">' + autos.map(saveCardHtml).join('') + '</div></details></div></div>';
-      const html = '<div class="screen-head"><h2>Сохранения: '+escapeHtml(c.name)+'</h2><button id="backMain" class="menu-primary ghost">Назад</button></div>' + listHtml;
-      if (inGame) { menuContent.innerHTML = html; document.getElementById('backMain').onclick=openMenu; } else { renderScreen(html, 'saves-panel'); document.getElementById('backMain').onclick=openMainMenu; }
-      const root = inGame ? menuContent : screenRoot; const scroll = root.querySelector('.saves-scroll'); if (scroll) scroll.scrollTop = 0;
-      root.querySelectorAll('[data-load-save]').forEach(function(b){ b.onclick=function(){ if(inGame && !confirm('Несохранённый прогресс текущей игры будет потерян')) return; getSaveRecord(b.dataset.loadSave).then(function(r){ startPlaying(r.gameState, r.campaignId, r.saveId); closeModal('menuModal'); }); }; });
-      root.querySelectorAll('[data-rename-save]').forEach(function(b){ b.onclick=function(){ getSaveRecord(b.dataset.renameSave).then(function(r){ const n=prompt('Название сохранения', r.name); if(!n) return; r.name=n.trim(); r.updatedAt=new Date().toISOString(); putSaveRecord(r).then(function(){ openCampaignSavesScreen(campaignId,inGame); }); }); }; });
-      root.querySelectorAll('[data-delete-save]').forEach(function(b){ b.onclick=function(){ if(confirm('Удалить сохранение?') && confirm('Точно удалить эту точку?')) deleteSaveRecord(b.dataset.deleteSave).then(function(){ openCampaignSavesScreen(campaignId,inGame); }); }; });
+      const html = '<div class="screen-head"><div class="saves-title"><h2>Сохранения</h2><small>'+escapeHtml(c.name)+'</small></div><button id="backMain" class="menu-primary ghost">'+(returnTarget === 'playing' ? 'Назад в игру' : 'Назад')+'</button></div>' + actionsHtml + listHtml;
+      renderScreen(html, 'saves-panel');
+      document.getElementById('backMain').onclick = function(){ if (returnTarget === 'playing') setScreen('playing'); else openMainMenu(); };
+      const root = screenRoot; const scroll = root.querySelector('.saves-scroll'); if (scroll) scroll.scrollTop = 0;
+      const refresh = function(){ openCampaignSavesScreen(campaignId, returnTarget); };
+      const quickBtn = document.getElementById('saveQuickFromManager');
+      if (quickBtn) quickBtn.onclick = function(){ quickSave().then(refresh); };
+      const manualBtn = document.getElementById('saveManualFromManager');
+      if (manualBtn) manualBtn.onclick = function(){
+        if(!canSaveNow()) return showToast(savingBlockedMessage());
+        const used = new Set(manual.map(function(s){ return s.saveId; }));
+        let slot = 1; while (slot <= 3 && used.has(activeCampaignId+'-manual-'+slot)) slot++;
+        const saveId = slot <= 3 ? activeCampaignId+'-manual-'+slot : null;
+        const name = prompt('Название сохранения', 'Перед важным решением'); if(!name) return;
+        manualSave(slot <= 3 ? slot : Date.now(), name.trim(), saveId).then(function(){ showToast('Игра сохранена'); refresh(); });
+      };
+      root.querySelectorAll('[data-load-save]').forEach(function(b){ b.onclick=function(){ getSaveRecord(b.dataset.loadSave).then(function(r){ startPlaying(r.gameState, r.campaignId, r.saveId); }); }; });
+      root.querySelectorAll('[data-rename-save]').forEach(function(b){ b.onclick=function(){ getSaveRecord(b.dataset.renameSave).then(function(r){ const n=prompt('Название сохранения', r.name); if(!n) return; r.name=n.trim(); r.updatedAt=new Date().toISOString(); putSaveRecord(r).then(refresh); }); }; });
+      root.querySelectorAll('[data-delete-save]').forEach(function(b){ b.onclick=function(){ if(confirm('Удалить сохранение?') && confirm('Точно удалить эту точку?')) deleteSaveRecord(b.dataset.deleteSave).then(refresh); }; });
     }); });
   }
 
@@ -2941,8 +2966,8 @@
     document.getElementById("artifactsBtn").addEventListener("click", openArtifacts);
     document.getElementById("wikiBtn").addEventListener("click", function () { closeModal("menuModal"); openWiki(); });
     document.getElementById("quickSaveBtn").addEventListener("click", function(){ quickSave(); });
-    document.getElementById("saveAsBtn").addEventListener("click", openManualSaveScreen);
-    document.getElementById("loadCurrentCampaignBtn").addEventListener("click", function(){ openCampaignSavesScreen(activeCampaignId, true); });
+    document.getElementById("saveAsBtn").addEventListener("click", function(){ openCampaignSavesScreen(activeCampaignId, 'playing'); });
+    document.getElementById("loadCurrentCampaignBtn").addEventListener("click", function(){ openCampaignSavesScreen(activeCampaignId, 'playing'); });
     document.getElementById("toMainBtn").addEventListener("click", function(){ if(!canSaveNow()) return showToast(savingBlockedMessage()); autoSave(false).then(function(){ closeModal('menuModal'); openMainMenu(); }).catch(function(){ const choice=prompt('Автосохранение не удалось. Введите: повторить, выйти, отмена', 'повторить'); if(choice==='повторить') autoSave(false).then(openMainMenu); else if(choice==='выйти') { closeModal('menuModal'); openMainMenu(); } }); });
     document.getElementById("closeMenuWide").addEventListener("click", function () { closeModal("menuModal"); });
     openModal("menuModal");
@@ -3211,7 +3236,7 @@
 
   openDb().then(function(db){ db.close(); storageAvailable = true; return migrateOldSaveIfNeeded(); }).catch(function(error){ storageAvailable = false; storageWarning = "IndexedDB недоступна: " + error.message + ". Пять слотов отключены, старое localStorage-сохранение не изменяется."; }).finally(function(){
     openMainMenu();
-    if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.3.3: исправлены автосохранения, прокрутка списка и разделение новых партий", 3600); }, 350); }
+    if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.3.4: единый удобный экран сохранений внутри игры и главного меню", 3600); }, 350); }
   });
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
