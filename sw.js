@@ -1,4 +1,4 @@
-const CACHE_NAME = "epohi-v1-3-1-menu-saves-cache";
+const CACHE_NAME = "epohi-v1-3-2-campaign-saves-cache";
 const APP_FILES = [
   "./",
   "./index.html",
