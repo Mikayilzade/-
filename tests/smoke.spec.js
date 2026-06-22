@@ -220,3 +220,75 @@ test.describe('v1.4.1 living world checks', () => {
     expect(problems).toEqual([]);
   });
 });
+
+
+test.describe('v1.4.2 resource, worker, and inspection checks', () => {
+  test('resource switcher uses local city stocks and worker spends local production', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 1, 'normal');
+
+    await expect(page.locator('#resourceScope')).toHaveText('Вся империя');
+    await expect(page.locator('#prodValue')).toHaveText('14');
+    await page.locator('#resourceNext').click();
+    await expect(page.locator('#resourceScope')).toHaveText('Ардена');
+    await expect(page.locator('#prodValue')).toHaveText('14');
+    await page.locator('#resourcePrev').click();
+    await expect(page.locator('#resourceScope')).toHaveText('Вся империя');
+
+    const workerResult = await page.evaluate(() => {
+      const d = window.__epohiDebug();
+      const s = d.state;
+      const cap = s.cities[0];
+      const spot = { x: cap.x + 1, y: cap.y };
+      s.map[spot.y][spot.x].terrain = 'forest';
+      s.map[spot.y][spot.x].revealed = true;
+      s.map[spot.y][spot.x].owner = cap.id;
+      s.map[spot.y][spot.x].improvement = null;
+      s.map[spot.y][spot.x].camp = null;
+      s.resources.production = 0;
+      cap.production = 14;
+      s.units.push({ id: 'worker-local-test', type: 'worker', x: spot.x, y: spot.y, moves: 1, acted: false, hp: 55, maxHp: 55 });
+      d.buildImprovementWithWorker('worker-local-test', 'lumber');
+      return { localProduction: cap.production, globalProduction: s.resources.production, owner: s.map[spot.y][spot.x].owner, improvement: s.map[spot.y][spot.x].improvement };
+    });
+    expect(workerResult).toEqual({ localProduction: 4, globalProduction: 0, owner: 'player-cap', improvement: 'lumber' });
+    await expectNoConsoleProblems(problems);
+  });
+
+  test('visible rival objects and barbarian camps can be inspected without losing own unit', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 1, 'normal');
+    const targets = await page.evaluate(() => {
+      const d = window.__epohiDebug();
+      const s = d.state;
+      const cap = s.city;
+      const own = s.units.find(u => u.type === 'warrior') || s.units[0];
+      own.x = cap.x; own.y = cap.y; own.moves = 1;
+      const civ = s.rivals[0];
+      civ.relation = 'neutral';
+      civ.units[0].x = cap.x + 1; civ.units[0].y = cap.y;
+      civ.units[0].hp = 33;
+      s.map[cap.y][cap.x + 1].revealed = true;
+      civ.cities[0].x = cap.x + 2; civ.cities[0].y = cap.y;
+      civ.cities[0].hp = 120;
+      s.map[cap.y][cap.x + 2].revealed = true;
+      s.map[cap.y + 1][cap.x + 1].camp = { hp: 90, maxHp: 140, nextSpawn: 2 };
+      s.map[cap.y + 1][cap.x + 1].revealed = true;
+      d.render();
+      return { ownId: own.id, unit: { x: cap.x + 1, y: cap.y }, city: { x: cap.x + 2, y: cap.y }, camp: { x: cap.x + 1, y: cap.y + 1 } };
+    });
+    await page.locator(`.tile[data-x="${targets.unit.x}"][data-y="${targets.unit.y}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('здоровье');
+    await expect(page.locator('#contextText')).toContainText('атака');
+    await page.locator(`.tile[data-x="${targets.city.x}"][data-y="${targets.city.y}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('Владелец');
+    await expect(page.locator('#contextText')).toContainText('здоровье');
+    await page.locator(`.tile[data-x="${targets.camp.x}"][data-y="${targets.camp.y}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('награда');
+    const stillSelected = await page.evaluate((id) => window.__epohiDebug().state.units.some(u => u.id === id), targets.ownId);
+    expect(stillSelected).toBeTruthy();
+    await expectNoConsoleProblems(problems);
+  });
+});
