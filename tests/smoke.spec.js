@@ -194,10 +194,30 @@ test.describe('v1.4.1 living world checks', () => {
       const city = s.cities.find(c => c.name === 'Тестград');
       city.queue = { type:'unit', id:'scout', progress:27, cost:28, upfront:{} };
       d.endTurn();
-      return new Promise(resolve => setTimeout(() => resolve({ cities:s.cities.length, hasQueue:!!city.queue, unitAtNew:s.units.some(u=>u.type==='scout'&&u.x===city.x&&u.y===city.y), capProd:cap.production !== city.production }), 250));
+      return new Promise(resolve => setTimeout(() => resolve({ cityId: city.id, cities:s.cities.length, hasQueue:!!city.queue, unitAtNew:s.units.some(u=>u.type==='scout'&&u.x===city.x&&u.y===city.y), capProd:cap.production !== city.production }), 250));
     });
     expect(result.cities).toBeGreaterThan(1);
     expect(result.unitAtNew).toBeTruthy();
+
+    await page.locator('#cityModal [data-close="cityModal"]').click();
+    await expect(page.locator('#cityModal')).not.toHaveClass(/show/);
+
+    await page.locator('#menuBtn').click();
+    await page.locator('#saveAsBtn').click();
+    await page.locator('#saveQuickFromManager').click();
+    await expect(page.locator('#screenRoot')).toContainText('Быстрое сохранение');
+    await page.getByRole('button', { name: 'Назад в игру' }).click();
+    await page.locator('#menuBtn').click();
+    await page.locator('#loadCurrentCampaignBtn').click();
+    const quicksaveCard = page.locator('.slot-card').filter({ hasText: 'Быстрое: Быстрое сохранение' });
+    await quicksaveCard.getByRole('button', { name: 'Загрузить' }).click();
+    await expect(page.locator('#gameApp')).toBeVisible();
+    const loaded = await page.evaluate((cityId) => {
+      const s = window.__epohiDebug().state;
+      const city = s.cities.find(c => c.id === cityId);
+      return city && { cityCount: s.cities.length, hasQueue: !!city.queue, queueId: city.queue && city.queue.id };
+    }, result.cityId);
+    expect(loaded).toMatchObject({ cityCount: result.cities, hasQueue: true, queueId: 'scout' });
     expect(problems).toEqual([]);
   });
 
