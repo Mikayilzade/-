@@ -185,19 +185,115 @@ test.describe('v1.4.1 living world checks', () => {
       window.prompt = () => 'Тестград';
       const d = window.__epohiDebug();
       const s = d.state;
-      s.researched.push('trade','mining');
+      s.researched.push('trade', 'mining');
+      const beforeIds = new Set(s.cities.map(c => c.id));
+      const beforeCount = s.cities.length;
       const cap = s.city;
-      const spot = { x: cap.x + 4, y: cap.y };
-      s.map[spot.y][spot.x].terrain = 'plains'; s.map[spot.y][spot.x].revealed = true; s.map[spot.y][spot.x].camp = null; s.map[spot.y][spot.x].poi = null;
-      s.units.push({ id:'settle-test', type:'settler', x:spot.x, y:spot.y, moves:1, acted:false, hp:70, maxHp:70 });
-      d.foundCity('settle-test');
-      const city = s.cities.find(c => c.name === 'Тестград');
-      city.queue = { type:'unit', id:'scout', progress:27, cost:28, upfront:{} };
+      const size = s.map.length;
+      let settler = null;
+      let spot = null;
+
+      function farEnough(x, y) {
+        const allCities = s.cities.concat(...(s.rivals || []).map(civ => civ.cities || []));
+        return allCities.every(c => Math.max(Math.abs(x - c.x), Math.abs(y - c.y)) >= 4);
+      }
+
+      for (let y = 2; y < size - 2 && !spot; y++) {
+        for (let x = 2; x < size - 2 && !spot; x++) {
+          if (!farEnough(x, y)) continue;
+          const tile = s.map[y][x];
+          tile.terrain = 'plains';
+          tile.feature = 'wheat';
+          tile.revealed = true;
+          tile.camp = null;
+          tile.poi = null;
+          tile.improvement = null;
+          tile.pillaged = false;
+          tile.owner = null;
+          for (const n of [{x,y}, {x:x+1,y}, {x:x-1,y}, {x,y:y+1}, {x,y:y-1}]) {
+            if (!s.map[n.y] || !s.map[n.y][n.x]) continue;
+            s.map[n.y][n.x].terrain = n.x === x && n.y === y ? 'plains' : 'forest';
+            s.map[n.y][n.x].revealed = true;
+            s.map[n.y][n.x].camp = null;
+            s.map[n.y][n.x].poi = null;
+            s.map[n.y][n.x].improvement = null;
+          }
+          s.barbarians = s.barbarians.filter(b => b.x !== x || b.y !== y);
+          (s.rivals || []).forEach(civ => { civ.units = (civ.units || []).filter(u => u.x !== x || u.y !== y); });
+          s.units = s.units.filter(u => u.x !== x || u.y !== y);
+          settler = { id:'settle-test', type:'settler', x, y, moves:1, acted:false, hp:70, maxHp:70 };
+          s.units.push(settler);
+          if (d.canFoundCity(settler)) spot = { x, y };
+          else s.units = s.units.filter(u => u.id !== settler.id);
+        }
+      }
+
+      if (!spot || !settler || !d.canFoundCity(settler)) throw new Error('No deterministic valid city founding spot found');
+      d.foundCity(settler.id);
+      if (s.cities.length !== beforeCount + 1) throw new Error(`City count did not increase: ${beforeCount} -> ${s.cities.length}`);
+      const city = s.cities.find(c => !beforeIds.has(c.id));
+      if (!city) throw new Error('Created city was not found by ID diff');
+      if (typeof city.food !== 'number' || typeof city.production !== 'number' || city.queue !== null) throw new Error('Created city lacks local economy fields');
+      const capProductionBefore = cap.production;
+      d.setActiveCity(city.id);
+      d.queueProject('unit', 'scout');
+      if (!city.queue || city.queue.id !== 'scout') throw new Error('Scout project was not added to the new city queue');
+      if (cap.production !== capProductionBefore) throw new Error('New city queue changed capital production');
+      const progressBefore = city.queue.progress;
+      const foodBefore = city.food;
       d.endTurn();
-      return new Promise(resolve => setTimeout(() => resolve({ cities:s.cities.length, hasQueue:!!city.queue, unitAtNew:s.units.some(u=>u.type==='scout'&&u.x===city.x&&u.y===city.y), capProd:cap.production !== city.production }), 250));
+      return new Promise(resolve => setTimeout(() => resolve({
+        cityId: city.id,
+        cityName: city.name,
+        beforeCount,
+        afterCount: s.cities.length,
+        hasLocalFood: typeof city.food === 'number',
+        hasLocalProduction: typeof city.production === 'number',
+        hasQueue: !!city.queue,
+        queueCityId: city.id,
+        capProductionUnchanged: cap.production === capProductionBefore,
+        progressBefore,
+        progressAfter: city.queue ? city.queue.progress : 0,
+        foodBefore,
+        foodAfter: city.food,
+        unitAtNew: s.units.some(u => u.type === 'scout' && u.x === city.x && u.y === city.y)
+      }), 250));
     });
-    expect(result.cities).toBeGreaterThan(1);
-    expect(result.unitAtNew).toBeTruthy();
+    expect(result.afterCount).toBe(result.beforeCount + 1);
+    expect(result.hasLocalFood).toBeTruthy();
+    expect(result.hasLocalProduction).toBeTruthy();
+    expect(result.hasQueue).toBeTruthy();
+    expect(result.capProductionUnchanged).toBeTruthy();
+    expect(result.progressAfter).toBeGreaterThan(result.progressBefore);
+    expect(result.foodAfter).toBeGreaterThan(result.foodBefore);
+
+    const cityModal = page.locator('#cityModal');
+    await cityModal.locator('[data-close="cityModal"]').click();
+    await expect(cityModal).not.toHaveClass(/show/);
+    await expect(cityModal).toBeHidden();
+    await expect(page.locator('.modal.show')).toHaveCount(0);
+    await page.locator('#menuBtn').click();
+    await page.locator('#saveAsBtn').click();
+    await page.locator('#saveQuickFromManager').click();
+    await expect(page.locator('#screenRoot')).toContainText('Быстрое сохранение');
+    await page.getByRole('button', { name: 'Назад в игру' }).click();
+    await page.locator('#menuBtn').click();
+    await page.locator('#loadCurrentCampaignBtn').click();
+    const quicksaveCard = page.locator('.slot-card').filter({ hasText: 'Быстрое: Быстрое сохранение' });
+    await quicksaveCard.getByRole('button', { name: 'Загрузить' }).click();
+    await expect(page.locator('#gameApp')).toBeVisible();
+    const loaded = await page.evaluate((cityId) => {
+      const s = window.__epohiDebug().state;
+      const city = s.cities.find(c => c.id === cityId);
+      return city && {
+        cityCount: s.cities.length,
+        hasLocalFood: typeof city.food === 'number',
+        hasLocalProduction: typeof city.production === 'number',
+        hasQueue: !!city.queue,
+        queueId: city.queue && city.queue.id
+      };
+    }, result.cityId);
+    expect(loaded).toMatchObject({ cityCount: result.afterCount, hasLocalFood: true, hasLocalProduction: true, hasQueue: true, queueId: 'scout' });
     expect(problems).toEqual([]);
   });
 
@@ -218,5 +314,77 @@ test.describe('v1.4.1 living world checks', () => {
     await page.locator('#saveQuickFromManager').click();
     await expect(page.locator('#screenRoot')).toContainText('Быстрое сохранение');
     expect(problems).toEqual([]);
+  });
+});
+
+
+test.describe('v1.4.2 resource, worker, and inspection checks', () => {
+  test('resource switcher uses local city stocks and worker spends local production', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 1, 'normal');
+
+    await expect(page.locator('#resourceScope')).toHaveText('Вся империя');
+    await expect(page.locator('#prodValue')).toHaveText('14');
+    await page.locator('#resourceNext').click();
+    await expect(page.locator('#resourceScope')).toHaveText('Ардена');
+    await expect(page.locator('#prodValue')).toHaveText('14');
+    await page.locator('#resourcePrev').click();
+    await expect(page.locator('#resourceScope')).toHaveText('Вся империя');
+
+    const workerResult = await page.evaluate(() => {
+      const d = window.__epohiDebug();
+      const s = d.state;
+      const cap = s.cities[0];
+      const spot = { x: cap.x + 1, y: cap.y };
+      s.map[spot.y][spot.x].terrain = 'forest';
+      s.map[spot.y][spot.x].revealed = true;
+      s.map[spot.y][spot.x].owner = cap.id;
+      s.map[spot.y][spot.x].improvement = null;
+      s.map[spot.y][spot.x].camp = null;
+      s.resources.production = 0;
+      cap.production = 14;
+      s.units.push({ id: 'worker-local-test', type: 'worker', x: spot.x, y: spot.y, moves: 1, acted: false, hp: 55, maxHp: 55 });
+      d.buildImprovementWithWorker('worker-local-test', 'lumber');
+      return { localProduction: cap.production, globalProduction: s.resources.production, owner: s.map[spot.y][spot.x].owner, improvement: s.map[spot.y][spot.x].improvement };
+    });
+    expect(workerResult).toEqual({ localProduction: 4, globalProduction: 0, owner: 'player-cap', improvement: 'lumber' });
+    await expectNoConsoleProblems(problems);
+  });
+
+  test('visible rival objects and barbarian camps can be inspected without losing own unit', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 1, 'normal');
+    const targets = await page.evaluate(() => {
+      const d = window.__epohiDebug();
+      const s = d.state;
+      const cap = s.city;
+      const own = s.units.find(u => u.type === 'warrior') || s.units[0];
+      own.x = cap.x; own.y = cap.y; own.moves = 1;
+      const civ = s.rivals[0];
+      civ.relation = 'neutral';
+      civ.units[0].x = cap.x + 1; civ.units[0].y = cap.y;
+      civ.units[0].hp = 33;
+      s.map[cap.y][cap.x + 1].revealed = true;
+      civ.cities[0].x = cap.x + 2; civ.cities[0].y = cap.y;
+      civ.cities[0].hp = 120;
+      s.map[cap.y][cap.x + 2].revealed = true;
+      s.map[cap.y + 1][cap.x + 1].camp = { hp: 90, maxHp: 140, nextSpawn: 2 };
+      s.map[cap.y + 1][cap.x + 1].revealed = true;
+      d.render();
+      return { ownId: own.id, unit: { x: cap.x + 1, y: cap.y }, city: { x: cap.x + 2, y: cap.y }, camp: { x: cap.x + 1, y: cap.y + 1 } };
+    });
+    await page.locator(`.tile[data-x="${targets.unit.x}"][data-y="${targets.unit.y}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('здоровье');
+    await expect(page.locator('#contextText')).toContainText('атака');
+    await page.locator(`.tile[data-x="${targets.city.x}"][data-y="${targets.city.y}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('Владелец');
+    await expect(page.locator('#contextText')).toContainText('здоровье');
+    await page.locator(`.tile[data-x="${targets.camp.x}"][data-y="${targets.camp.y}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('награда');
+    const stillSelected = await page.evaluate((id) => window.__epohiDebug().state.units.some(u => u.id === id), targets.ownId);
+    expect(stillSelected).toBeTruthy();
+    await expectNoConsoleProblems(problems);
   });
 });
