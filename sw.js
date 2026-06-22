@@ -1,4 +1,4 @@
-const CACHE_NAME = "epohi-v1-4-alpha-first-civilization-cache";
+const CACHE_NAME = "epohi-v1-4-1-alpha-living-world-cities-cache";
 const APP_FILES = [
   "./",
   "./index.html",

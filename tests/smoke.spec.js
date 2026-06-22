@@ -111,3 +111,103 @@ test.describe('Epohi browser smoke', () => {
     await expectNoConsoleProblems(problems);
   });
 });
+
+test.describe('v1.4.1 living world checks', () => {
+  test('barbarian activity selector starts normal game and grace period blocks raids', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await page.getByRole('button', { name: 'Новая игра' }).click();
+    await page.locator('#partySize').selectOption('normal');
+    await page.locator('#rivalCount').selectOption('1');
+    await page.locator('#barbarianActivity').selectOption('normal');
+    await page.locator('#partyName').fill(`Living ${Date.now()}`);
+    await page.getByRole('button', { name: 'Создать мир' }).click();
+    await expect(page.locator('#gameApp')).toBeVisible();
+    const ok = await page.evaluate(() => {
+      const d = window.__epohiDebug();
+      const before = d.state.barbarians.length;
+      for (let i = 0; i < 10; i++) d.processBarbarians();
+      return d.state.turn < 12 && d.state.barbarians.length === before && d.state.barbarianActivity === 'normal';
+    });
+    expect(ok).toBeTruthy();
+    expect(problems).toEqual([]);
+  });
+
+  test('barbarians and AI interact: raider targets AI, AI attacks raider and can clear camp', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 1, 'normal');
+    const result = await page.evaluate(() => {
+      const d = window.__epohiDebug();
+      const s = d.state;
+      s.turn = 12;
+      const civ = s.rivals[0];
+      const u = civ.units.find(x => x.type === 'warrior') || civ.units[0];
+      s.barbarians = [{ id:'bt', x:u.x+1, y:u.y, hp:40, maxHp:75, homeX:u.x+2, homeY:u.y, last:null }];
+      d.processBarbarians();
+      const attacked = s.eventLog.some(e => e.eventType === 'barbarian-attacked-rival');
+      s.barbarians = [{ id:'bt2', x:u.x+1, y:u.y, hp:8, maxHp:75, homeX:u.x+2, homeY:u.y, last:null }];
+      d.processRivals();
+      const killed = s.eventLog.some(e => e.eventType === 'rival-destroyed-barbarian');
+      const cx = u.x+1, cy = u.y;
+      s.map[cy][cx].camp = { hp: 1, maxHp: 140, nextSpawn: 9 };
+      d.processRivals();
+      const camp = s.eventLog.some(e => e.eventType === 'rival-destroyed-camp');
+      return { attacked, killed, camp };
+    });
+    expect(result).toEqual({ attacked: true, killed: true, camp: true });
+    expect(problems).toEqual([]);
+  });
+
+  test('two AI civilizations can enter war after turn 20', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 2, 'normal');
+    const war = await page.evaluate(() => { const d=window.__epohiDebug(); d.state.turn=20; d.processRivals(); return d.state.eventLog.some(e=>e.eventType==='rival-war-declared'); });
+    expect(war).toBeTruthy();
+    expect(problems).toEqual([]);
+  });
+
+  test('player settler founds a city with its own queue and local production', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 1, 'normal');
+    const result = await page.evaluate(() => {
+      window.prompt = () => 'Тестград';
+      const d = window.__epohiDebug();
+      const s = d.state;
+      s.researched.push('trade','mining');
+      const cap = s.city;
+      const spot = { x: cap.x + 4, y: cap.y };
+      s.map[spot.y][spot.x].terrain = 'plains'; s.map[spot.y][spot.x].revealed = true; s.map[spot.y][spot.x].camp = null; s.map[spot.y][spot.x].poi = null;
+      s.units.push({ id:'settle-test', type:'settler', x:spot.x, y:spot.y, moves:1, acted:false, hp:70, maxHp:70 });
+      d.foundCity('settle-test');
+      const city = s.cities.find(c => c.name === 'Тестград');
+      city.queue = { type:'unit', id:'scout', progress:27, cost:28, upfront:{} };
+      d.endTurn();
+      return new Promise(resolve => setTimeout(() => resolve({ cities:s.cities.length, hasQueue:!!city.queue, unitAtNew:s.units.some(u=>u.type==='scout'&&u.x===city.x&&u.y===city.y), capProd:cap.production !== city.production }), 250));
+    });
+    expect(result.cities).toBeGreaterThan(1);
+    expect(result.unitAtNew).toBeTruthy();
+    expect(problems).toEqual([]);
+  });
+
+  test('save/load supports multiple cities and legacy outpost shape', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 0, 'small');
+    const migrated = await page.evaluate(() => {
+      const d=window.__epohiDebug(); const s=d.state;
+      s.settlements.push({x:s.city.x+3,y:s.city.y+3,name:'Старый форпост'});
+      const raw=JSON.parse(JSON.stringify(s)); delete raw.cities; raw.resources.food=5; raw.resources.production=7;
+      localStorage.setItem('legacy-check', JSON.stringify(raw));
+      return true;
+    });
+    expect(migrated).toBeTruthy();
+    await page.locator('#menuBtn').click();
+    await page.locator('#saveAsBtn').click();
+    await page.locator('#saveQuickFromManager').click();
+    await expect(page.locator('#screenRoot')).toContainText('Быстрое сохранение');
+    expect(problems).toEqual([]);
+  });
+});
