@@ -185,19 +185,110 @@ test.describe('v1.4.1 living world checks', () => {
       window.prompt = () => 'Тестград';
       const d = window.__epohiDebug();
       const s = d.state;
-      s.researched.push('trade','mining');
+      s.researched.push('trade', 'mining');
+      const beforeIds = new Set(s.cities.map(c => c.id));
+      const beforeCount = s.cities.length;
       const cap = s.city;
-      const spot = { x: cap.x + 4, y: cap.y };
-      s.map[spot.y][spot.x].terrain = 'plains'; s.map[spot.y][spot.x].revealed = true; s.map[spot.y][spot.x].camp = null; s.map[spot.y][spot.x].poi = null;
-      s.units.push({ id:'settle-test', type:'settler', x:spot.x, y:spot.y, moves:1, acted:false, hp:70, maxHp:70 });
-      d.foundCity('settle-test');
-      const city = s.cities.find(c => c.name === 'Тестград');
-      city.queue = { type:'unit', id:'scout', progress:27, cost:28, upfront:{} };
+      const size = s.map.length;
+      let settler = null;
+      let spot = null;
+
+      function farEnough(x, y) {
+        const allCities = s.cities.concat(...(s.rivals || []).map(civ => civ.cities || []));
+        return allCities.every(c => Math.max(Math.abs(x - c.x), Math.abs(y - c.y)) >= 4);
+      }
+
+      for (let y = 2; y < size - 2 && !spot; y++) {
+        for (let x = 2; x < size - 2 && !spot; x++) {
+          if (!farEnough(x, y)) continue;
+          const tile = s.map[y][x];
+          tile.terrain = 'plains';
+          tile.feature = 'wheat';
+          tile.revealed = true;
+          tile.camp = null;
+          tile.poi = null;
+          tile.improvement = null;
+          tile.pillaged = false;
+          tile.owner = null;
+          for (const n of [{x,y}, {x:x+1,y}, {x:x-1,y}, {x,y:y+1}, {x,y:y-1}]) {
+            if (!s.map[n.y] || !s.map[n.y][n.x]) continue;
+            s.map[n.y][n.x].terrain = n.x === x && n.y === y ? 'plains' : 'forest';
+            s.map[n.y][n.x].revealed = true;
+            s.map[n.y][n.x].camp = null;
+            s.map[n.y][n.x].poi = null;
+            s.map[n.y][n.x].improvement = null;
+          }
+          s.barbarians = s.barbarians.filter(b => b.x !== x || b.y !== y);
+          (s.rivals || []).forEach(civ => { civ.units = (civ.units || []).filter(u => u.x !== x || u.y !== y); });
+          s.units = s.units.filter(u => u.x !== x || u.y !== y);
+          settler = { id:'settle-test', type:'settler', x, y, moves:1, acted:false, hp:70, maxHp:70 };
+          s.units.push(settler);
+          if (d.canFoundCity(settler)) spot = { x, y };
+          else s.units = s.units.filter(u => u.id !== settler.id);
+        }
+      }
+
+      if (!spot || !settler || !d.canFoundCity(settler)) throw new Error('No deterministic valid city founding spot found');
+      d.foundCity(settler.id);
+      if (s.cities.length !== beforeCount + 1) throw new Error(`City count did not increase: ${beforeCount} -> ${s.cities.length}`);
+      const city = s.cities.find(c => !beforeIds.has(c.id));
+      if (!city) throw new Error('Created city was not found by ID diff');
+      if (typeof city.food !== 'number' || typeof city.production !== 'number' || city.queue !== null) throw new Error('Created city lacks local economy fields');
+      const capProductionBefore = cap.production;
+      d.setActiveCity(city.id);
+      d.queueProject('unit', 'scout');
+      if (!city.queue || city.queue.id !== 'scout') throw new Error('Scout project was not added to the new city queue');
+      if (cap.production !== capProductionBefore) throw new Error('New city queue changed capital production');
+      const progressBefore = city.queue.progress;
+      const foodBefore = city.food;
       d.endTurn();
-      return new Promise(resolve => setTimeout(() => resolve({ cities:s.cities.length, hasQueue:!!city.queue, unitAtNew:s.units.some(u=>u.type==='scout'&&u.x===city.x&&u.y===city.y), capProd:cap.production !== city.production }), 250));
+      return new Promise(resolve => setTimeout(() => resolve({
+        cityId: city.id,
+        cityName: city.name,
+        beforeCount,
+        afterCount: s.cities.length,
+        hasLocalFood: typeof city.food === 'number',
+        hasLocalProduction: typeof city.production === 'number',
+        hasQueue: !!city.queue,
+        queueCityId: city.id,
+        capProductionUnchanged: cap.production === capProductionBefore,
+        progressBefore,
+        progressAfter: city.queue ? city.queue.progress : 0,
+        foodBefore,
+        foodAfter: city.food,
+        unitAtNew: s.units.some(u => u.type === 'scout' && u.x === city.x && u.y === city.y)
+      }), 250));
     });
-    expect(result.cities).toBeGreaterThan(1);
-    expect(result.unitAtNew).toBeTruthy();
+    expect(result.afterCount).toBe(result.beforeCount + 1);
+    expect(result.hasLocalFood).toBeTruthy();
+    expect(result.hasLocalProduction).toBeTruthy();
+    expect(result.hasQueue).toBeTruthy();
+    expect(result.capProductionUnchanged).toBeTruthy();
+    expect(result.progressAfter).toBeGreaterThan(result.progressBefore);
+    expect(result.foodAfter).toBeGreaterThan(result.foodBefore);
+
+    await page.locator('#menuBtn').click();
+    await page.locator('#saveAsBtn').click();
+    await page.locator('#saveQuickFromManager').click();
+    await expect(page.locator('#screenRoot')).toContainText('Быстрое сохранение');
+    await page.getByRole('button', { name: 'Назад в игру' }).click();
+    await page.locator('#menuBtn').click();
+    await page.locator('#loadCurrentCampaignBtn').click();
+    const quicksaveCard = page.locator('.slot-card').filter({ hasText: 'Быстрое: Быстрое сохранение' });
+    await quicksaveCard.getByRole('button', { name: 'Загрузить' }).click();
+    await expect(page.locator('#gameApp')).toBeVisible();
+    const loaded = await page.evaluate((cityId) => {
+      const s = window.__epohiDebug().state;
+      const city = s.cities.find(c => c.id === cityId);
+      return city && {
+        cityCount: s.cities.length,
+        hasLocalFood: typeof city.food === 'number',
+        hasLocalProduction: typeof city.production === 'number',
+        hasQueue: !!city.queue,
+        queueId: city.queue && city.queue.id
+      };
+    }, result.cityId);
+    expect(loaded).toMatchObject({ cityCount: result.afterCount, hasLocalFood: true, hasLocalProduction: true, hasQueue: true, queueId: 'scout' });
     expect(problems).toEqual([]);
   });
 

@@ -3493,7 +3493,7 @@
     saveCamera();
   });
 
-  window.__epohiDebug = function(){ return { state: state, endTurn: endTurn, foundCity: foundCity, canFoundCity: canFoundCity, processBarbarians: processBarbarians, processRivals: processRivals, buildImprovementWithWorker: buildImprovementWithWorker, repairImprovement: repairImprovement, render: render, setResourceViewCity: setResourceViewCity, setResourceViewEmpire: setResourceViewEmpire, cycleResourceView: cycleResourceView }; };
+  window.__epohiDebug = function(){ return { state: state, endTurn: endTurn, foundCity: foundCity, canFoundCity: canFoundCity, processBarbarians: processBarbarians, processRivals: processRivals, buildImprovementWithWorker: buildImprovementWithWorker, repairImprovement: repairImprovement, render: render, setResourceViewCity: setResourceViewCity, setResourceViewEmpire: setResourceViewEmpire, cycleResourceView: cycleResourceView, queueProject: queueProject, setActiveCity: function(cityId){ selectedCityId = cityId; } }; };
   openDb().then(function(db){ db.close(); storageAvailable = true; return migrateOldSaveIfNeeded(); }).catch(function(error){ storageAvailable = false; storageWarning = "IndexedDB недоступна: " + error.message + ". Пять слотов отключены, старое localStorage-сохранение не изменяется."; }).finally(function(){
     openMainMenu();
     if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.4.2-alpha: варвары воюют со всеми, цивилизации сражаются между собой, а поселенцы основывают настоящие города", 3600); }, 350); }
