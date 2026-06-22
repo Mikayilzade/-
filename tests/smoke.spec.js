@@ -234,13 +234,19 @@ test.describe('v1.4.1 living world checks', () => {
       const city = s.cities.find(c => !beforeIds.has(c.id));
       if (!city) throw new Error('Created city was not found by ID diff');
       if (typeof city.food !== 'number' || typeof city.production !== 'number' || city.queue !== null) throw new Error('Created city lacks local economy fields');
-      const capProductionBefore = cap.production;
+      const capProductionBeforeQueue = cap.production;
       d.setActiveCity(city.id);
       d.queueProject('unit', 'scout');
       if (!city.queue || city.queue.id !== 'scout') throw new Error('Scout project was not added to the new city queue');
-      if (cap.production !== capProductionBefore) throw new Error('New city queue changed capital production');
+      if (cap.production !== capProductionBeforeQueue) throw new Error('New city queue changed capital production before endTurn');
+      const capProductionBeforeTurn = cap.production;
+      const cityProductionBeforeTurn = city.production;
       const progressBefore = city.queue.progress;
-      const foodBefore = city.food;
+      const capFoodBefore = cap.food;
+      const cityFoodBefore = city.food;
+      const globalProductionBefore = s.resources.production;
+      const capIncome = d.cityIncome(cap);
+      const cityIncome = d.cityIncome(city);
       d.endTurn();
       return new Promise(resolve => setTimeout(() => resolve({
         cityId: city.id,
@@ -251,11 +257,24 @@ test.describe('v1.4.1 living world checks', () => {
         hasLocalProduction: typeof city.production === 'number',
         hasQueue: !!city.queue,
         queueCityId: city.id,
-        capProductionUnchanged: cap.production === capProductionBefore,
+        queueDidNotChangeCapitalBeforeTurn: capProductionBeforeQueue === capProductionBeforeTurn,
+        capProductionBeforeTurn,
+        cityProductionBeforeTurn,
+        capProductionAfterTurn: cap.production,
+        cityProductionAfterTurn: city.production,
+        expectedCapProductionAfterTurn: capProductionBeforeTurn + capIncome.production,
+        expectedCityProductionAfterTurn: cityProductionBeforeTurn,
         progressBefore,
         progressAfter: city.queue ? city.queue.progress : 0,
-        foodBefore,
-        foodAfter: city.food,
+        expectedProgressAfter: progressBefore + cityIncome.production,
+        globalProductionBefore,
+        globalProductionAfter: s.resources.production,
+        capFoodBefore,
+        cityFoodBefore,
+        capFoodAfter: cap.food,
+        cityFoodAfter: city.food,
+        expectedCapFoodAfter: capFoodBefore + capIncome.food,
+        expectedCityFoodAfter: cityFoodBefore + cityIncome.food,
         unitAtNew: s.units.some(u => u.type === 'scout' && u.x === city.x && u.y === city.y)
       }), 250));
     });
@@ -263,9 +282,14 @@ test.describe('v1.4.1 living world checks', () => {
     expect(result.hasLocalFood).toBeTruthy();
     expect(result.hasLocalProduction).toBeTruthy();
     expect(result.hasQueue).toBeTruthy();
-    expect(result.capProductionUnchanged).toBeTruthy();
-    expect(result.progressAfter).toBeGreaterThan(result.progressBefore);
-    expect(result.foodAfter).toBeGreaterThan(result.foodBefore);
+    expect(result.queueDidNotChangeCapitalBeforeTurn).toBeTruthy();
+    expect(result.progressAfter).toBe(result.expectedProgressAfter);
+    expect(result.cityProductionAfterTurn).toBe(result.expectedCityProductionAfterTurn);
+    expect(result.capProductionAfterTurn).toBe(result.expectedCapProductionAfterTurn);
+    expect(result.capProductionAfterTurn).toBeGreaterThanOrEqual(result.capProductionBeforeTurn);
+    expect(result.globalProductionAfter).toBe(result.globalProductionBefore);
+    expect(result.capFoodAfter).toBe(result.expectedCapFoodAfter);
+    expect(result.cityFoodAfter).toBe(result.expectedCityFoodAfter);
 
     await page.locator('#menuBtn').click();
     await page.locator('#saveAsBtn').click();
