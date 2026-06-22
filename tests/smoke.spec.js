@@ -187,17 +187,53 @@ test.describe('v1.4.1 living world checks', () => {
       const s = d.state;
       s.researched.push('trade','mining');
       const cap = s.city;
-      const spot = { x: cap.x + 4, y: cap.y };
-      s.map[spot.y][spot.x].terrain = 'plains'; s.map[spot.y][spot.x].revealed = true; s.map[spot.y][spot.x].camp = null; s.map[spot.y][spot.x].poi = null;
-      s.units.push({ id:'settle-test', type:'settler', x:spot.x, y:spot.y, moves:1, acted:false, hp:70, maxHp:70 });
+      const beforeIds = new Set(s.cities.map(c => c.id));
+      let spot = null;
+      for (let dy = -6; dy <= 6 && !spot; dy++) {
+        for (let dx = -6; dx <= 6 && !spot; dx++) {
+          const x = cap.x + dx, y = cap.y + dy;
+          if (!s.map[y] || !s.map[y][x]) continue;
+          const t = s.map[y][x];
+          t.terrain = 'plains'; t.revealed = true; t.camp = null; t.poi = null; t.improvement = null;
+          const settler = { id:'settle-test', type:'settler', x, y, moves:1, acted:false, hp:70, maxHp:70 };
+          s.units = s.units.filter(u => u.id !== 'settle-test').concat([settler]);
+          if (d.canFoundCity(settler)) spot = { x, y };
+        }
+      }
+      if (!spot) return { error: 'no founding spot' };
       d.foundCity('settle-test');
-      const city = s.cities.find(c => c.name === 'Тестград');
-      city.queue = { type:'unit', id:'scout', progress:27, cost:28, upfront:{} };
+      const city = s.cities.find(c => !beforeIds.has(c.id));
+      d.setActiveCity(city.id);
+      const capProductionBeforeQueue = cap.production;
+      city.production = 3;
+      d.queueProject('unit', 'scout');
+      const queueDidNotChangeCapitalBeforeTurn = cap.production === capProductionBeforeQueue;
+      const progressBefore = city.queue.progress;
+      const cityProductionBeforeTurn = city.production;
+      const capProductionBeforeTurn = cap.production;
+      const cityIncome = d.cityIncome(city);
+      const capIncome = d.cityIncome(cap);
       d.endTurn();
-      return new Promise(resolve => setTimeout(() => resolve({ cities:s.cities.length, hasQueue:!!city.queue, unitAtNew:s.units.some(u=>u.type==='scout'&&u.x===city.x&&u.y===city.y), capProd:cap.production !== city.production }), 250));
+      return new Promise(resolve => setTimeout(() => resolve({
+        cities:s.cities.length,
+        cityId:city.id,
+        queueDidNotChangeCapitalBeforeTurn,
+        cityProgress:city.queue && city.queue.progress,
+        expectedProgressAfter:progressBefore + cityIncome.production,
+        cityProductionAfterTurn:city.production,
+        expectedCityProductionAfterTurn:cityProductionBeforeTurn,
+        capProductionAfterTurn:cap.production,
+        expectedCapProductionAfterTurn:capProductionBeforeTurn + capIncome.production,
+        globalProduction:s.resources.production
+      }), 250));
     });
+    expect(result.error).toBeFalsy();
     expect(result.cities).toBeGreaterThan(1);
-    expect(result.unitAtNew).toBeTruthy();
+    expect(result.queueDidNotChangeCapitalBeforeTurn).toBeTruthy();
+    expect(result.cityProgress).toBe(result.expectedProgressAfter);
+    expect(result.cityProductionAfterTurn).toBe(result.expectedCityProductionAfterTurn);
+    expect(result.capProductionAfterTurn).toBe(result.expectedCapProductionAfterTurn);
+    expect(result.globalProduction).toBe(0);
     expect(problems).toEqual([]);
   });
 
@@ -217,6 +253,60 @@ test.describe('v1.4.1 living world checks', () => {
     await page.locator('#saveAsBtn').click();
     await page.locator('#saveQuickFromManager').click();
     await expect(page.locator('#screenRoot')).toContainText('Быстрое сохранение');
+    expect(problems).toEqual([]);
+  });
+});
+
+test.describe('v1.4.2 resource, worker, and inspection checks', () => {
+  test('resource switcher uses local city stocks and worker spends local production', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 0, 'small');
+    await expect(page.locator('#resourceScope')).toHaveText('Вся империя');
+    const result = await page.evaluate(() => {
+      const d = window.__epohiDebug(); const s = d.state; const cap = s.city;
+      s.researched.push('mining');
+      s.resources.production = 0; cap.production = 14; cap.food = 9;
+      const worker = { id:'worker-local-pay', type:'worker', x:cap.x-1, y:cap.y, moves:1, acted:false, hp:70, maxHp:70 };
+      const tile = s.map[worker.y][worker.x];
+      tile.terrain = 'forest'; tile.revealed = true; tile.improvement = null; tile.pillaged = false; tile.camp = null; tile.poi = null; tile.owner = cap.id;
+      s.units.push(worker);
+      d.setResourceViewCity(cap.id);
+      d.render();
+      d.buildImprovementWithWorker(worker.id, 'lumber');
+      return { capProduction: cap.production, globalProduction: s.resources.production, improvement: tile.improvement, owner: tile.owner };
+    });
+    await expect(page.locator('#resourceScope')).toContainText('Ардена');
+    expect(result).toEqual({ capProduction: 4, globalProduction: 0, improvement: 'lumber', owner: 'player-cap' });
+    await page.locator('#resourcePrev').click();
+    await expect(page.locator('#resourceScope')).toHaveText('Вся империя');
+    expect(problems).toEqual([]);
+  });
+
+  test('visible rival objects and barbarian camps can be inspected without losing own unit', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await createGame(page, 1, 'normal');
+    const setup = await page.evaluate(() => {
+      const d = window.__epohiDebug(); const s = d.state; const cap = s.city; const civ = s.rivals[0];
+      const own = s.units[0]; own.x = cap.x; own.y = cap.y - 1; s.map[own.y][own.x].revealed = true;
+      const unit = civ.units[0]; unit.x = cap.x + 1; unit.y = cap.y; unit.hp = unit.maxHp || 60; s.map[unit.y][unit.x].revealed = true;
+      const city = civ.cities[0]; city.x = cap.x + 2; city.y = cap.y; city.hp = city.maxHp || 150; s.map[city.y][city.x].revealed = true;
+      const campX = cap.x + 1, campY = cap.y + 1; s.map[campY][campX].terrain = 'plains'; s.map[campY][campX].revealed = true; s.map[campY][campX].camp = { hp: 20, maxHp: 140, nextSpawn: 8 };
+      s.barbarians = [{ id:'inspect-barb', x:cap.x-1, y:cap.y, hp:40, maxHp:75, homeX:campX, homeY:campY, last:null }]; s.map[cap.y][cap.x-1].revealed = true;
+      d.render();
+      return { ownId: own.id, unitX: unit.x, unitY: unit.y, cityX: city.x, cityY: city.y, campX, campY, barbX: cap.x-1, barbY: cap.y };
+    });
+    await page.locator(`.tile[data-x="${setup.unitX}"][data-y="${setup.unitY}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('атака');
+    await page.locator(`.tile[data-x="${setup.cityX}"][data-y="${setup.cityY}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('Владелец');
+    await page.locator(`.tile[data-x="${setup.campX}"][data-y="${setup.campY}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('награда');
+    await page.locator(`.tile[data-x="${setup.barbX}"][data-y="${setup.barbY}"]`).click();
+    await expect(page.locator('#contextText')).toContainText('здоровье');
+    const ownStillExists = await page.evaluate((id) => window.__epohiDebug().state.units.some(u => u.id === id), setup.ownId);
+    expect(ownStillExists).toBeTruthy();
     expect(problems).toEqual([]);
   });
 });
