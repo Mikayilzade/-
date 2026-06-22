@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-  <title>Эпохи v1.4-alpha — пошаговая стратегия</title>
+  <title>Эпохи v1.4.1-alpha — пошаговая стратегия</title>
   <style>
     :root {
       --bg: #18231c;
@@ -1071,7 +1071,7 @@
     <header class="topbar">
       <div class="brand">
         <h1>Эпохи</h1>
-        <p id="subtitle">От племени к империи · v1.4-alpha</p>
+        <p id="subtitle">От племени к империи · v1.4.1-alpha</p>
       </div>
       <div class="turn-card">
         <small id="eraLabel">Племя</small>
@@ -1174,7 +1174,7 @@
 
   const DEFAULT_MAP_SIZE = 28;
   const MAP_SIZES = { small: 20, normal: 28, large: 36 };
-  const GAME_VERSION = "v1.4-alpha";
+  const GAME_VERSION = "v1.4.1-alpha";
   const SAVE_SCHEMA_VERSION = 4;
   const SAVE_KEY = "mika-epohi-v1-state";
   const CAMERA_KEY = "mika-epohi-v12-camera";
@@ -1292,13 +1292,15 @@
     settler: {
       name: "Поселенец", icon: "⛺", mapIcon: "🧳", tech: "trade", population: 4,
       cost: { production: 52, gold: 15 }, maxMoves: 1, maxHealth: 70, attack: 4, defense: 4,
-      description: "Основывает форпост и расширяет территорию"
+      description: "Основывает полноценный новый город с собственной территорией и очередью"
     }
   };
 
 
 
-  const BARBARIAN = { campHealth: 140, raiderHealth: 75, raiderAttack: 20, raiderDefense: 10, maxRaiders: 18, graceTurns: 10 };
+  const BARBARIAN = { campHealth: 140, raiderHealth: 75, raiderAttack: 20, raiderDefense: 10, maxRaiders: 9, graceTurns: 12, spawnMin: 8, spawnMax: 12 };
+  const BARBARIAN_ACTIVITY = { low:{label:"низкая", camps:.65, grace:16, min:11, max:15, limit:6}, normal:{label:"обычная", camps:1, grace:12, min:8, max:12, limit:9}, high:{label:"высокая", camps:1.35, grace:8, min:6, max:9, limit:14}, off:{label:"отключены", camps:0, grace:999, min:99, max:99, limit:0} };
+  const CITY_MIN_DISTANCE = 4;
   const INTEREST_TYPES = {
     ruins: { name: "Древние руины", icon: "⌁" }, depot: { name: "Заброшенный склад", icon: "▣" }, grove: { name: "Священная роща", icon: "♧" },
     mine: { name: "Старая шахта", icon: "◇" }, caravan: { name: "Потерянный караван", icon: "⊙" }, cave: { name: "Пещера", icon: "△" },
@@ -1480,13 +1482,13 @@
       else if ((tile.terrain === "desert" || tile.terrain === "hill") && r < .055) tile.feature = "gems";
     }
     placePointsOfInterest(grid, size, cx, cy);
-    placeCamps(grid, size, cx, cy);
     return grid;
   }
 
   function passableTile(tile) { return tile && tile.terrain !== "water"; }
   function poiTargetCount(size) { return Math.round(size * size / 39); }
-  function campTargetCount(size) { return size < 24 ? 3 : size < 32 ? 5 : 7; }
+  function barbarianRules(gs) { return BARBARIAN_ACTIVITY[(gs && gs.barbarianActivity) || "normal"] || BARBARIAN_ACTIVITY.normal; }
+  function campTargetCount(size, activity) { const base = size < 24 ? 3 : size < 32 ? 5 : 7; return Math.max(0, Math.round(base * ((BARBARIAN_ACTIVITY[activity||"normal"]||BARBARIAN_ACTIVITY.normal).camps || 0))); }
   function farFromExisting(grid, x, y, prop, minDist) {
     for (let yy = 0; yy < grid.length; yy++) for (let xx = 0; xx < grid.length; xx++) if (grid[yy][xx][prop] && chebyshev(x,y,xx,yy) < minDist) return false;
     return true;
@@ -1500,29 +1502,30 @@
       tile.poi = { type: ids[placed % ids.length], used: false }; placed++;
     }
   }
-  function placeCamps(grid, size, cx, cy) {
-    let placed = 0, tries = 0, target = campTargetCount(size);
+  function placeCamps(grid, size, cx, cy, activity) {
+    let placed = 0, tries = 0, target = campTargetCount(size, activity);
     while (placed < target && tries++ < size * size * 3) {
       const x = 2 + Math.floor(Math.random() * (size - 4)), y = 2 + Math.floor(Math.random() * (size - 4));
       const tile = grid[y][x];
-      if (!passableTile(tile) || chebyshev(x,y,cx,cy) < 8 || !farFromExisting(grid,x,y,"camp",6)) continue;
-      tile.camp = { hp: BARBARIAN.campHealth, maxHp: BARBARIAN.campHealth, nextSpawn: 5 + Math.floor(Math.random() * 4) }; placed++;
+      if (!passableTile(tile) || chebyshev(x,y,cx,cy) < 9 || !farFromExisting(grid,x,y,"camp",6)) continue;
+      const rules = BARBARIAN_ACTIVITY[activity||"normal"] || BARBARIAN_ACTIVITY.normal;
+      tile.camp = { hp: BARBARIAN.campHealth, maxHp: BARBARIAN.campHealth, nextSpawn: rules.grace + Math.floor(Math.random() * (rules.max-rules.min+1)), spawned: 0 }; placed++;
     }
   }
 
-  function createNewGame(size, rivalCount) {
+  function createNewGame(size, rivalCount, barbarianActivity) {
     size = size || DEFAULT_MAP_SIZE;
     rivalCount = Math.min(size <= 20 ? 1 : 2, Math.max(0, Number(rivalCount == null ? 1 : rivalCount)));
     const cx = Math.floor(size / 2), cy = Math.floor(size / 2);
     const newState = {
-      version: 3, mapSize: size, turn: 1, map: generateMap(size),
-      city: { x: cx, y: cy, name: "Ардена", population: 1, buildings: [], queue: null, damage: 0, hp: 180, maxHp: 180 },
+      version: 4, mapSize: size, turn: 1, map: generateMap(size), barbarianActivity: barbarianActivity || "normal",
+      city: { id:"player-cap", x: cx, y: cy, name: "Ардена", population: 1, food: 6, production: 14, buildings: [], queue: null, damage: 0, hp: 180, maxHp: 180, capital: true },
       units: [{ id: "u1", type: "scout", x: cx, y: cy - 1, moves: 2, acted: false, hp: 60, maxHp: 60 }],
       barbarians: [], nextUnitId: 2, nextBarbarianId: 1, settlements: [], artifacts: [], permanentBonuses: {},
-      resources: { food: 6, production: 14, gold: 8, science: 4 }, researched: [], currentResearch: "agriculture", victory: false, defeat: false, history: [], eventLog: [], eventCounter: 0, rivals: [], nextRivalUnitId: 1
+      resources: { food: 0, production: 0, gold: 8, science: 4 }, researched: [], currentResearch: "agriculture", victory: false, defeat: false, history: [], eventLog: [], eventCounter: 0, rivals: [], nextRivalUnitId: 1
     };
     revealAround(newState, newState.city.x, newState.city.y, 2); revealAround(newState, cx, cy - 1, 1);
-    initializeRivals(newState, rivalCount);
+    newState.cities = [newState.city]; placeCamps(newState.map, size, cx, cy, newState.barbarianActivity); initializeRivals(newState, rivalCount);
     logEvent(newState, "civilization-founded", "Основана Ардена.", { x: cx, y: cy }, { actorType: "player", actorId: "player" });
     return newState;
   }
@@ -1533,7 +1536,7 @@
 
   function migrateState(candidate) {
     if (!validState(candidate)) return null;
-    candidate.mapSize = candidate.mapSize || candidate.map.length;
+    candidate.mapSize = candidate.mapSize || candidate.map.length; if (!candidate.barbarianActivity) candidate.barbarianActivity = "normal";
     candidate.map.forEach(function (row) { row.forEach(function (tile) { if (tile.pillaged === undefined) tile.pillaged = false; if (tile.poi === undefined) tile.poi = null; if (tile.camp === undefined) tile.camp = null; }); });
     if (!Array.isArray(candidate.units)) {
       const oldScout = candidate.scout || { x: candidate.city.x, y: candidate.city.y - 1, moved: false };
@@ -1549,11 +1552,11 @@
     if (!Array.isArray(candidate.artifacts)) candidate.artifacts = [];
     if (!candidate.permanentBonuses) candidate.permanentBonuses = {};
     if (!Array.isArray(candidate.settlements)) candidate.settlements = [];
-    if (!candidate.city.buildings) candidate.city.buildings = []; if (candidate.city.damage === undefined) candidate.city.damage = 0; if (typeof candidate.city.maxHp !== "number") candidate.city.maxHp = 180; if (typeof candidate.city.hp !== "number") candidate.city.hp = Math.max(40, candidate.city.maxHp - candidate.city.damage * 12);
-    if (candidate.city.queue === undefined) candidate.city.queue = null;
+    if (!candidate.city.id) candidate.city.id = "player-cap"; if (!candidate.city.buildings) candidate.city.buildings = []; if (candidate.city.damage === undefined) candidate.city.damage = 0; if (typeof candidate.city.maxHp !== "number") candidate.city.maxHp = 180; if (typeof candidate.city.hp !== "number") candidate.city.hp = Math.max(40, candidate.city.maxHp - candidate.city.damage * 12);
+    if (candidate.city.queue === undefined) candidate.city.queue = null; if (typeof candidate.city.food !== "number") candidate.city.food = candidate.resources && candidate.resources.food || 0; if (typeof candidate.city.production !== "number") candidate.city.production = candidate.resources && candidate.resources.production || 0; candidate.city.capital = true; if (!Array.isArray(candidate.cities)) candidate.cities = [candidate.city]; candidate.cities.forEach(function(c,i){ if(!c.id)c.id=i?"player-city"+i:"player-cap"; if(!c.buildings)c.buildings=[]; if(c.queue===undefined)c.queue=null; if(typeof c.food!=="number")c.food=0; if(typeof c.production!=="number")c.production=0; if(typeof c.maxHp!=="number")c.maxHp=c.capital?180:150; if(typeof c.hp!=="number")c.hp=c.maxHp; if(!c.name)c.name=i?"Новый город":"Ардена"; }); candidate.city = candidate.cities[0]; candidate.resources.food = 0; candidate.resources.production = 0;
     if (!candidate.nextUnitId) candidate.nextUnitId = candidate.units.reduce(function (max, unit) { return Math.max(max, Number(String(unit.id).replace(/\D/g, "")) || 0); }, 0) + 1;
     if (!Array.isArray(candidate.history)) candidate.history = []; if (!Array.isArray(candidate.eventLog)) candidate.eventLog = []; if (!Array.isArray(candidate.rivals)) candidate.rivals = []; if (!candidate.nextRivalUnitId) candidate.nextRivalUnitId = 1; if (typeof candidate.defeat !== "boolean") candidate.defeat = false; if (typeof candidate.victory !== "boolean") candidate.victory = false;
-    candidate.version = 3; delete candidate.scout; return candidate;
+    candidate.version = 4; delete candidate.scout; return candidate;
   }
 
   function safeGet(key) {
@@ -2025,7 +2028,7 @@
     let msg = def.name + " атакует.";
     if (target.hp <= 0) {
       if (barb) { state.barbarians = state.barbarians.filter(function (b) { return b.id !== barb.id; }); msg = "Варвар повержен."; }
-      else if (camp) { state.map[y][x].camp = null; state.resources.gold += 25; logEvent(state,"barbarian-camp-destroyed","уничтожен варварский лагерь.",{x:x,y:y},{actorType:"player",actorId:"player"}); if (maybeAddArtifact("camp")) msg = "Лагерь уничтожен: +25 золота и артефакт."; else msg = "Лагерь уничтожен: +25 золота."; }
+      else if (camp) { campReward({resources:state.resources}, unit, x, y); state.resources.production += 6; if (maybeAddArtifact("camp")) msg = "Лагерь уничтожен: +25 золота, +6 науки/производства и артефакт."; else msg = "Лагерь уничтожен: +25 золота, +6 науки/производства."; }
       else if (ru) { ru.civ.units = ru.civ.units.filter(function (u) { return u.id !== ru.unit.id; }); logEvent(state,"unit-destroyed","Уничтожен юнит: "+ru.civ.name+".",{x:x,y:y},{actorType:"player",actorId:"player"}); msg = "Юнит соперника уничтожен."; }
       else if (rc) { rc.city.hp = 0; rc.civ.defeated = rc.city.capital; logEvent(state,"city-captured","Захвачен город: "+rc.city.name+".",{x:x,y:y},{actorType:"player",actorId:"player"}); if (rc.city.capital) { rc.civ.units=[]; msg = "Столица соперника захвачена."; if ((state.rivals||[]).every(function(c){return c.defeated;})) { state.victory=true; logEvent(state,"victory","Захвачены столицы всех соперников.",null,{actorType:"player",actorId:"player"}); } } else msg = "Город соперника захвачен."; }
       if (!unitsAt(x,y).length && passableTile(state.map[y][x])) { unit.x = x; unit.y = y; revealAround(state,x,y, unit.type === "scout" ? scoutSight() : 1); }
@@ -2663,17 +2666,14 @@
       const rivalActions = processRivals();
       const barbarianText = processBarbarians();
       const income = calculateIncome();
-      state.resources.food += income.food;
-      state.resources.gold += income.gold;
-      state.resources.science += income.science;
-      const completedProject = processProduction(income.production);
-      const grew = applyGrowth();
+      const completedProject = processProduction();
+      const grew = false;
       const completedTech = finishResearch();
       const eventText = randomEvent();
       state.turn += 1;
       state.units.forEach(function (unit) { unit.moves = UNIT_DEFS[unit.type].maxMoves; unit.acted = false; });
       selected = null;
-      let message = "Получено: 🍞" + income.food + " · 🔨" + income.production + (state.city.queue ? " в проект" : "") + " · 🪙" + income.gold + " · 🔬" + income.science;
+      let message = "Города получили: 🍞" + income.food + " · 🔨" + income.production + " · 🪙" + income.gold + " · 🔬" + income.science;
       if (rivalActions) message = "Соперники действуют: " + rivalActions + ". " + message;
       if (grew) message = "Население выросло до " + state.city.population + "! " + message;
       if (completedTech) message = completedTech.icon + " Изучено: " + completedTech.name + ". " + message;
@@ -2864,7 +2864,7 @@
     }).join("");
 
     wikiContent.innerHTML =
-      '<div class="section-title">Что изменилось в v1.4-alpha</div>' +
+      '<div class="section-title">Что изменилось в v1.4.1-alpha</div>' +
       '<div class="wiki-callout"><strong>Главное меню, пять слотов сохранения и безопасное автосохранение.</strong> Новые партии используют карту 28×28, а в меню новой игры можно выбрать 20×20, 28×28 или 36×36.</div>' +
       '<div class="section-title">Юниты и карта</div>' +
       '<div class="wiki-list">' +
@@ -2889,7 +2889,7 @@
       '<details class="wiki-details"><summary>Технологии</summary><div class="wiki-details-body"><div class="card-list">' + techs + '</div></div></details>' +
       '<div class="section-title">Условие победы</div>' +
       '<div class="wiki-callout">Изучи «Государственность», вырасти до населения 6 и заверши 🏰 Дворец в городской очереди.</div>' +
-      '<div class="section-title">Цивилизации-соперники</div><div class="wiki-callout">В v1.4-alpha новая партия может иметь 0–2 соперника. Они имеют отдельные ресурсы, технологии, города, юнитов, собственный туман войны и журнал решений. Первая версия использует общую логику ИИ с разными названиями, цветами и символами.</div><details class="wiki-details" open><summary>Встреча, нейтралитет и война</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Встреча", "Государство неизвестно, пока игрок не увидит его юнит, город или территорию.") + wikiRow("Статусы", "Есть неизвестен, нейтрален и война. Нейтральные стороны не атакуют друг друга; атака игрока требует подтверждения через панель цивилизаций.") + wikiRow("ИИ", "До 20 хода соперник не начинает войну сам, но после этого оценивает силу армии, расстояние и угрозы.") + '</div></div></details><details class="wiki-details"><summary>Развитие ИИ, захват городов и победа</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Развитие ИИ", "ИИ выбирает цель по весам: разведка, защита, улучшения, поселенец, лагеря, подготовка войны.") + wikiRow("Города", "Города имеют здоровье и не должны падать от одного удара; полный захват столиц — военная победа.") + wikiRow("Летопись", "Крупные события пишутся в ограниченный журнал, который сохраняется в snapshots кампании.") + '</div></div></details><div class="section-title">Что ещё впереди</div>' +
+      '<div class="section-title">Города и варвары v1.4.1</div><div class="wiki-callout">Поселенец теперь основывает полноценный город с локальной едой, локальным производством и собственной очередью. Золото, наука, артефакты и технологии остаются общими. Форпосты старых партий сохраняются как наследуемые пограничные объекты. Варвары воюют со всеми, имеют безопасный период и настраиваемую активность. ИИ защищает города и гражданских, атакует налётчиков, ходит к близким лагерям, получает награды за лагеря и может воевать с другими ИИ после 20 хода.</div><div class="section-title">Цивилизации-соперники</div><div class="wiki-callout">В v1.4.1-alpha новая партия может иметь 0–2 соперника. Они имеют отдельные ресурсы, технологии, города, юнитов, собственный туман войны и журнал решений. Первая версия использует общую логику ИИ с разными названиями, цветами и символами.</div><details class="wiki-details" open><summary>Встреча, нейтралитет и война</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Встреча", "Государство неизвестно, пока игрок не увидит его юнит, город или территорию.") + wikiRow("Статусы", "Есть неизвестен, нейтрален и война. Нейтральные стороны не атакуют друг друга; атака игрока требует подтверждения через панель цивилизаций.") + wikiRow("ИИ", "До 20 хода соперник не начинает войну сам, но после этого оценивает силу армии, расстояние и угрозы.") + '</div></div></details><details class="wiki-details"><summary>Развитие ИИ, захват городов и победа</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Развитие ИИ", "ИИ выбирает цель по весам: разведка, защита, улучшения, поселенец, лагеря, подготовка войны.") + wikiRow("Города", "Города имеют здоровье и не должны падать от одного удара; полный захват столиц — военная победа.") + wikiRow("Летопись", "Крупные события пишутся в ограниченный журнал, который сохраняется в snapshots кампании.") + '</div></div></details><div class="section-title">Что ещё впереди</div>' +
       '<div class="inline-note">Форпост пока не является полноценным вторым городом: у него нет собственного населения и очереди. Варвары — первая нейтральная угроза; дипломатии и дорог пока нет.</div>';
 
     openModal("wikiModal");
@@ -2920,7 +2920,7 @@
     Promise.all([getCampaigns(), storageEstimateKb()]).then(function(res) {
       const campaigns = res[0].sort(function(a,b){ return String(b.lastPlayedAt).localeCompare(String(a.lastPlayedAt)); }); const approx = res[1];
       const cards = campaigns.length ? campaigns.map(function(c){ return '<article class="slot-card" data-campaign="'+c.campaignId+'"><strong>'+escapeHtml(c.name)+'</strong><small id="line-'+c.campaignId+'">'+c.mapSize+'×'+c.mapSize+' · '+formatDate(c.lastPlayedAt)+'</small><div class="slot-actions"><button data-continue="'+c.campaignId+'" class="menu-primary">Продолжить</button><button data-saves="'+c.campaignId+'" class="menu-primary secondary">Сохранения</button><button data-rename-campaign="'+c.campaignId+'" class="menu-primary secondary">Переименовать</button><button data-delete-campaign="'+c.campaignId+'" class="menu-primary danger">Удалить</button></div></article>'; }).join('') : '<div class="menu-hint">Партий пока нет. Создайте новый мир.</div>';
-      renderScreen('<h1 class="menu-title">ЭПОХИ</h1><p class="menu-version">v1.4-alpha</p>' + (storageWarning ? '<div class="screen-note">'+escapeHtml(storageWarning)+'</div>' : '') + '<div class="menu-hint">v1.4-alpha: первые цивилизации-соперники, войны, развитие ИИ и летопись мира.<br>Примерный размер данных: '+approx+' КБ.</div><div class="menu-stack"><button id="newGameScreenBtn" class="menu-primary">Новая игра</button><button id="wikiScreenBtn" class="menu-primary secondary">Вики</button><button id="settingsScreenBtn" class="menu-primary ghost">Настройки</button></div><div class="section-title">Партии</div><div class="slot-list">'+cards+'</div>');
+      renderScreen('<h1 class="menu-title">ЭПОХИ</h1><p class="menu-version">v1.4.1-alpha</p>' + (storageWarning ? '<div class="screen-note">'+escapeHtml(storageWarning)+'</div>' : '') + '<div class="menu-hint">v1.4.1-alpha: варвары воюют со всеми, цивилизации сражаются между собой, а поселенцы основывают настоящие города.<br>Примерный размер данных: '+approx+' КБ.</div><div class="menu-stack"><button id="newGameScreenBtn" class="menu-primary">Новая игра</button><button id="wikiScreenBtn" class="menu-primary secondary">Вики</button><button id="settingsScreenBtn" class="menu-primary ghost">Настройки</button></div><div class="section-title">Партии</div><div class="slot-list">'+cards+'</div>');
       campaigns.forEach(function(c){ getCampaignSaves(c.campaignId).then(function(saves){ const latest=saves[0]; const el=document.getElementById('line-'+c.campaignId); if(el) el.textContent = campaignLine(c, saves.length, latest && latest.turn); }); });
       document.getElementById("newGameScreenBtn").onclick = openNewGameScreen; document.getElementById("wikiScreenBtn").onclick = function(){ setScreen("wiki"); openWiki(); document.querySelector('#wikiModal .close-btn').onclick = function(){ closeModal('wikiModal'); openMainMenu(); }; }; document.getElementById("settingsScreenBtn").onclick = openSettingsScreen;
       screenRoot.querySelectorAll('[data-continue]').forEach(function(b){ b.onclick=function(){ continueCampaign(b.dataset.continue); }; });
@@ -2936,10 +2936,10 @@
   function openNewGameScreen() {
     setScreen("new-game");
     nextDefaultCampaignName().then(function(defName){
-      renderScreen('<div class="screen-head"><h2>Новая игра</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="screen-form"><label class="field-label">Название партии<input id="partyName" placeholder="'+defName+'"><small id="nameWarn" class="wiki-mini"></small></label><label class="field-label">Размер карты<select id="partySize"><option value="small">маленькая — 20×20</option><option value="normal" selected>обычная — 28×28</option><option value="large">большая — 36×36</option></select></label><label class="field-label">Цивилизации-соперники<select id="rivalCount"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option></select><small class="wiki-mini">На 20×20 максимум один соперник; старые сохранения не получают ИИ задним числом.</small></label><button id="createParty" class="menu-primary">Создать мир</button></div>');
+      renderScreen('<div class="screen-head"><h2>Новая игра</h2><button id="backMain" class="menu-primary ghost">Назад</button></div><div class="screen-form"><label class="field-label">Название партии<input id="partyName" placeholder="'+defName+'"><small id="nameWarn" class="wiki-mini"></small></label><label class="field-label">Размер карты<select id="partySize"><option value="small">маленькая — 20×20</option><option value="normal" selected>обычная — 28×28</option><option value="large">большая — 36×36</option></select></label><label class="field-label">Активность варваров<select id="barbarianActivity"><option value="low">низкая</option><option value="normal" selected>обычная</option><option value="high">высокая</option><option value="off">отключены</option></select></label><label class="field-label">Цивилизации-соперники<select id="rivalCount"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option></select><small class="wiki-mini">На 20×20 максимум один соперник; старые сохранения не получают ИИ задним числом.</small></label><button id="createParty" class="menu-primary">Создать мир</button></div>');
       document.getElementById("backMain").onclick = openMainMenu;
       document.getElementById("partyName").oninput = function(){ const value=this.value.trim(); getCampaigns().then(function(cs){ document.getElementById('nameWarn').textContent = value && cs.some(function(c){ return c.name === value; }) ? 'Название уже используется; партия всё равно будет отдельной.' : ''; }); };
-      document.getElementById("createParty").onclick = function(){ const size=MAP_SIZES[document.getElementById('partySize').value]||DEFAULT_MAP_SIZE; const rivals=Math.min(size<=20?1:2, Number(document.getElementById('rivalCount').value)); const ns=createNewGame(size, rivals); state=ns; const name=document.getElementById('partyName').value.trim()||defName; createCampaignForNewGame(ns, name).then(function(c){ return manualSave(1, 'Начало партии', c.campaignId+'-manual-1').then(function(){ return autoSave(true); }).then(function(){ startPlaying(ns, c.campaignId, activeSaveId); }); }); };
+      document.getElementById("createParty").onclick = function(){ const size=MAP_SIZES[document.getElementById('partySize').value]||DEFAULT_MAP_SIZE; const rivals=Math.min(size<=20?1:2, Number(document.getElementById('rivalCount').value)); const ns=createNewGame(size, rivals, document.getElementById('barbarianActivity').value); state=ns; const name=document.getElementById('partyName').value.trim()||defName; createCampaignForNewGame(ns, name).then(function(c){ return manualSave(1, 'Начало партии', c.campaignId+'-manual-1').then(function(){ return autoSave(true); }).then(function(){ startPlaying(ns, c.campaignId, activeSaveId); }); }); };
     });
   }
 
@@ -3309,6 +3309,66 @@
     centerCameraOnFocus(true);
   });
 
+
+
+  // v1.4.1 living-world city/economy overrides
+  let selectedCityId = null;
+  function playerCities(){ return (state && Array.isArray(state.cities) && state.cities.length) ? state.cities : (state ? [state.city] : []); }
+  function activeCity(){ return playerCities().find(c=>c.id===selectedCityId) || playerCities()[0] || state.city; }
+  function cityRadius(city){ if (city.population >= 6) return 3; if (city.population >= 3) return 2; return 1; }
+  function inTerritory(x, y) { if (playerCities().some(c=>chebyshev(x,y,c.x,c.y)<=cityRadius(c))) return true; return state.settlements.some(s=>chebyshev(x,y,s.x,s.y)<=1); }
+  function hasBuilding(id) { return (activeCity().buildings||[]).indexOf(id) !== -1; }
+  function cityIncome(city){ const income={food:2+Math.floor(city.population/2),production:2+(city.youngUntil&&state.turn<=city.youngUntil?-1:0),gold:1,science:2}; addYield(income,TERRAIN[state.map[city.y][city.x].terrain].base); (city.buildings||[]).forEach(id=>addYield(income,BUILDINGS[id].yield)); state.map.forEach((row,y)=>row.forEach((tile,x)=>{ if(tile.owner===(city.id||city.name)&&tile.improvement&&!tile.pillaged){ addYield(income,TERRAIN[tile.terrain].base); addYield(income,IMPROVEMENTS[tile.improvement].yield); if(tile.feature) addYield(income,FEATURES[tile.feature].bonus); }})); income.production=Math.max(1,income.production+(state.permanentBonuses.production||0)); income.gold+=(state.permanentBonuses.gold||0); income.science+=(state.permanentBonuses.science||0); return income; }
+  function calculateIncome(){ const total={food:0,production:0,gold:0,science:0}; playerCities().forEach(c=>addYield(total,cityIncome(c))); state.settlements.forEach(()=>addYield(total,{food:1,production:1,gold:1})); return total; }
+  function cityAtAny(x,y){ const pc=playerCities().find(c=>c.x===x&&c.y===y&&c.hp>0); if(pc) return {owner:'player', city:pc}; const rc=rivalCityAt(x,y); if(rc) return rc; return null; }
+  function canFoundCity(unit){ if(!unit||unit.type!=='settler'||unit.acted) return false; if(playerCities().length>=4) return false; const t=state.map[unit.y][unit.x]; if(!t.revealed||!passableTile(t)||unitsAt(unit.x,unit.y).filter(u=>u.id!==unit.id).length||rivalUnitAt(unit.x,unit.y)||barbarianAt(unit.x,unit.y)||campAt(unit.x,unit.y)||t.poi) return false; if(rivalCityAt(unit.x,unit.y)) return false; if((state.rivals||[]).some(civ=>(civ.cities||[]).some(c=>chebyshev(unit.x,unit.y,c.x,c.y)<=cityRadius(c)))) return false; if(playerCities().concat([].concat(...(state.rivals||[]).map(c=>c.cities||[]))).some(c=>chebyshev(unit.x,unit.y,c.x,c.y)<CITY_MIN_DISTANCE)) return false; let potential=0; neighborsOf(unit.x,unit.y,mapSizeCells()).concat([{x:unit.x,y:unit.y}]).forEach(p=>{ const y=getTileYield(state.map[p.y][p.x]); potential+=y.food+y.production; }); return potential>=2; }
+  function foundCity(unitId){ const unit=getUnit(unitId); if(!canFoundCity(unit)) return; let name=prompt('Название нового города','Город '+(playerCities().length+1))||('Город '+(playerCities().length+1)); const city={id:'player-city'+Date.now(),name:name.trim(),x:unit.x,y:unit.y,population:1,food:0,production:0,buildings:[],queue:null,hp:150,maxHp:150,capital:false,youngUntil:state.turn+3}; state.cities.push(city); revealAround(state,city.x,city.y,1); neighborsOf(city.x,city.y,mapSizeCells()).concat([{x:city.x,y:city.y}]).forEach(p=>{ if(!state.map[p.y][p.x].owner) state.map[p.y][p.x].owner=city.id; }); state.units=state.units.filter(u=>u.id!==unit.id); selectedCityId=city.id; selectedUnitId=state.units[0]&&state.units[0].id; centerCameraOnTile(city.x,city.y,true); logEvent(state,'city-founded','Основан город '+city.name+'.',{x:city.x,y:city.y},{actorType:'player',actorId:'player'}); showToast('🏛️ Основан город '+city.name+'.',3000); render(); }
+  function canFoundOutpost(unit){ return false; }
+  function queueProject(type,id){ const city=activeCity(); if(city.queue) return showToast('Очередь этого города занята.'); const def=projectDef(type,id); if(!def||def.tech&&!hasTech(def.tech)||type==='building'&&(city.buildings||[]).includes(id)) return; if((id==='palace'&&city.population<6)||(type==='unit'&&city.population<def.population)) return showToast('Недостаточно населения.'); const upfront=nonProductionCost(def.cost); if(!canAfford(upfront)) return showToast('Не хватает общих ресурсов.'); pay(upfront); city.queue={type,id,progress:0,cost:def.cost.production||0,upfront}; logEvent(state,'city-production-started',city.name+': начат проект '+def.name+'.',{x:city.x,y:city.y},{actorType:'player',actorId:'player'}); render(); openCity(); }
+  function cancelQueue(){ const city=activeCity(), q=city.queue; if(!q)return; Object.keys(q.upfront||{}).forEach(k=>state.resources[k]+=q.upfront[k]); city.queue=null; render(); openCity(); }
+  function rushQueue(){ const city=activeCity(), q=city.queue; if(!q||city.production<=0)return; const a=Math.min(city.production,q.cost-q.progress); city.production-=a; q.progress+=a; const done=finishCityQueue(city); showToast(done?done.text:'Вложено 🔨 '+a); render(); openCity(); }
+  function addUnit(type, city){ city=city||activeCity(); const id='u'+state.nextUnitId++; const def=UNIT_DEFS[type]; state.units.push({id,type,x:city.x,y:city.y,moves:0,acted:false,maxHp:def.maxHealth||60,hp:def.maxHealth||60}); return id; }
+  function finishCityQueue(city){ const q=city.queue; if(!q||q.progress<q.cost)return null; const def=projectDef(q.type,q.id); city.queue=null; if(q.type==='building'){ city.buildings.push(q.id); if(q.id==='palace') state.victory=true; logEvent(state,'city-production-completed',city.name+' завершил здание '+def.name+'.',{x:city.x,y:city.y},{actorType:'player',actorId:'player'}); return {text:def.icon+' '+def.name+' завершён.',victory:q.id==='palace'}; } const uid=addUnit(q.id,city); logEvent(state,'city-production-completed',city.name+' подготовил '+def.name+'.',{x:city.x,y:city.y},{actorType:'player',actorId:'player'}); return {text:def.icon+' '+def.name+' готов в '+city.name+'.',unitId:uid}; }
+  function processProduction(){ let completed=null; playerCities().forEach(city=>{ const inc=cityIncome(city); city.food+=inc.food; state.resources.gold+=inc.gold; state.resources.science+=inc.science; if(city.queue){ city.queue.progress+=inc.production; completed=finishCityQueue(city)||completed; } else city.production+=inc.production; while(city.population<10&&city.food>=growthNeed(city.population)){ city.food-=growthNeed(city.population); city.population++; revealAround(state,city.x,city.y,cityRadius(city)); logEvent(state,'city-growth',city.name+' вырос до населения '+city.population+'.',{x:city.x,y:city.y},{actorType:'player',actorId:'player'}); } }); return completed; }
+  function applyGrowth(){ return false; }
+  function barbarianVisible(b,x,y){ return chebyshev(b.x,b.y,x,y)<=6 || chebyshev(b.homeX,b.homeY,x,y)<=5; }
+  function allBarbarianTargets(b){ const targets=[]; state.units.forEach(u=>targets.push({kind:u.type==='worker'||u.type==='settler'?'civilian':'unit',x:u.x,y:u.y,unit:u,owner:'player'})); playerCities().forEach(c=>targets.push({kind:'city',x:c.x,y:c.y,city:c,owner:'player'})); state.settlements.forEach(o=>targets.push({kind:'outpost',x:o.x,y:o.y,outpost:o,owner:'player'})); (state.rivals||[]).forEach(civ=>{ (civ.units||[]).forEach(u=>targets.push({kind:u.type==='worker'||u.type==='settler'?'civilian':'unit',x:u.x,y:u.y,unit:u,civ,owner:civ.civilizationId})); (civ.cities||[]).forEach(c=>targets.push({kind:'city',x:c.x,y:c.y,city:c,civ,owner:civ.civilizationId})); }); state.map.forEach((row,y)=>row.forEach((t,x)=>{ if(t.improvement&&!t.pillaged&&barbarianVisible(b,x,y)) targets.push({kind:'improvement',x,y,owner:t.owner}); })); return targets.filter(t=>barbarianVisible(b,t.x,t.y)); }
+  function nearestBarbarianTarget(b){ const adjacent=allBarbarianTargets(b).filter(t=>isAdjacent(b.x,b.y,t.x,t.y)); if(adjacent.length) return adjacent[0]; const order=['civilian','unit','improvement','outpost','city']; for(const kind of order){ const list=allBarbarianTargets(b).filter(t=>t.kind===kind).sort((a,c)=>chebyshev(b.x,b.y,a.x,a.y)-chebyshev(b.x,b.y,c.x,c.y)); if(list[0]) return list[0]; } return {x:b.homeX+(Math.floor(Math.random()*3)-1),y:b.homeY+(Math.floor(Math.random()*3)-1)}; }
+  function tryMoveBarbarian(b,target){ const opts=neighborsOf(b.x,b.y,mapSizeCells()).filter(p=>passableTile(state.map[p.y][p.x])&&!barbarianAt(p.x,p.y)&&!campAt(p.x,p.y)); if(!opts.length)return; opts.sort((a,c)=>chebyshev(a.x,a.y,target.x,target.y)-chebyshev(c.x,c.y,target.x,target.y)); let n=opts[0]; b.last={x:b.x,y:b.y}; b.x=n.x; b.y=n.y; }
+  function processBarbarians(){ const rules=barbarianRules(state); if(state.barbarianActivity==='off') return ''; let actions=0; state.map.forEach((row,y)=>row.forEach((tile,x)=>{ if(!tile.camp||tile.camp.hp<=0)return; tile.camp.nextSpawn--; const local=state.barbarians.filter(b=>b.homeX===x&&b.homeY===y).length; if(tile.camp.nextSpawn<=0&&state.turn>=rules.grace&&local<2&&state.barbarians.length<rules.limit){ const spot=neighborsOf(x,y,mapSizeCells()).find(p=>passableTile(state.map[p.y][p.x])&&!barbarianAt(p.x,p.y)&&!unitsAt(p.x,p.y).length&&!rivalUnitAt(p.x,p.y)); if(spot){ state.barbarians.push({id:'b'+state.nextBarbarianId++,x:spot.x,y:spot.y,hp:BARBARIAN.raiderHealth,maxHp:BARBARIAN.raiderHealth,homeX:x,homeY:y,last:null}); actions++; } tile.camp.nextSpawn=rules.min+Math.floor(Math.random()*(rules.max-rules.min+1)); }})); state.barbarians.slice().forEach(b=>{ const target=nearestBarbarianTarget(b); if(target&&isAdjacent(b.x,b.y,target.x,target.y)&&target.unit){ target.unit.hp-=damageAmount(BARBARIAN.raiderAttack,(UNIT_DEFS[target.unit.type].defense||0)+defenseBonus(target.x,target.y)); logEvent(state,target.civ?'barbarian-attacked-rival':'barbarian-attacked-player','Варвар атаковал '+(target.civ?target.civ.name:'Ардену')+'.',{x:target.x,y:target.y},{actorType:'barbarian',actorId:b.id}); if(target.unit.hp<=0){ if(target.civ) target.civ.units=target.civ.units.filter(u=>u.id!==target.unit.id); else killUnit(target.unit); } actions++; return; } const t=state.map[b.y][b.x]; if(t.improvement&&!t.pillaged){ t.pillaged=true; logEvent(state,t.owner&&String(t.owner).startsWith('civ')?'barbarians-pillaged-rival':'barbarians-pillaged','Варвары разграбили улучшение '+(t.owner||'')+'.',{x:b.x,y:b.y},{actorType:'barbarian',actorId:b.id}); actions++; return; } if(target) tryMoveBarbarian(b,target); actions++; }); return actions?' Варвары действуют: '+actions+'.':''; }
+  function aiAttackBarbarian(civ,u){ const b=state.barbarians.find(bb=>isAdjacent(u.x,u.y,bb.x,bb.y)); if(b&&u.type!=='scout'){ b.hp-=damageAmount(UNIT_DEFS[u.type].attack||8,BARBARIAN.raiderDefense+defenseBonus(b.x,b.y)); logEvent(state,'rival-destroyed-barbarian',civ.name+' атакует варварского налётчика.',{x:b.x,y:b.y},{actorType:'civilization',actorId:civ.civilizationId,phase:'rivals'}); if(b.hp<=0){ state.barbarians=state.barbarians.filter(x=>x.id!==b.id); logEvent(state,'rival-destroyed-barbarian',civ.name+' уничтожил налётчика.',{x:b.x,y:b.y},{actorType:'civilization',actorId:civ.civilizationId,phase:'rivals'}); } return true; } return false; }
+  function campReward(civ,unit,x,y){ state.map[y][x].camp=null; const target=civ.resources||state.resources; target.gold=(target.gold||0)+25; target.science=(target.science||0)+6; if(unit){ unit.hp=Math.min(unit.maxHp,unit.hp+20); } if(civ.civilizationId) logEvent(state,'rival-destroyed-camp',civ.name+' уничтожил варварский лагерь.',{x,y},{actorType:'civilization',actorId:civ.civilizationId,phase:'rivals'}); else logEvent(state,'barbarian-camp-destroyed','уничтожен варварский лагерь.',{x,y},{actorType:'player',actorId:'player'}); }
+  function produceForAi(civ){ (civ.cities||[]).forEach(city=>{ if(!city.queue){ const threat=state.barbarians.some(b=>chebyshev(b.x,b.y,city.x,city.y)<=5); const warriors=civ.units.filter(u=>u.type==='warrior').length; let type=threat||warriors<2?'warrior':(civ.units.filter(u=>u.type==='worker').length<1?'worker':(civ.cities.length<AI_LIMITS.maxCities?'settler':'scout')); const def=UNIT_DEFS[type]; city.queue={type:'unit',id:type,progress:0,cost:def.cost.production||0,upfront:{gold:def.cost.gold||0}}; if(def.cost.gold)civ.resources.gold=Math.max(0,civ.resources.gold-def.cost.gold); } const inc=cityIncome(city); city.food=(city.food||0)+inc.food; civ.resources.gold+=inc.gold; civ.resources.science+=inc.science; city.queue.progress+=inc.production; if(city.queue.progress>=city.queue.cost){ const type=city.queue.id, def=UNIT_DEFS[type]; civ.units.push({id:'ru'+(state.nextRivalUnitId++),civilizationId:civ.civilizationId,type,x:city.x,y:city.y,moves:0,acted:false,hp:def.maxHealth,maxHp:def.maxHealth}); logEvent(state,'city-production-completed',civ.name+': '+city.name+' подготовил '+def.name+'.',{x:city.x,y:city.y},{actorType:'civilization',actorId:civ.civilizationId,phase:'rivals'}); city.queue=null; } }); }
+  function canRivalFoundCity(civ,u){ if(!u||u.type!=='settler'||civ.cities.length>=AI_LIMITS.maxCities)return false; if(barbarianAt(u.x,u.y)||campAt(u.x,u.y)||rivalCityAt(u.x,u.y)||unitsAt(u.x,u.y).length)return false; return passableTile(state.map[u.y][u.x]) && !state.map[u.y][u.x].poi && civ.cities.every(c=>chebyshev(u.x,u.y,c.x,c.y)>=CITY_MIN_DISTANCE) && playerCities().every(c=>chebyshev(u.x,u.y,c.x,c.y)>=CITY_MIN_DISTANCE); }
+  function processRivals(){ let actions=0; const rivals=state.rivals||[]; rivals.forEach(civ=>{ if(civ.defeated)return; produceForAi(civ); chooseAiGoal(civ); civ.units.forEach(u=>{u.moves=UNIT_DEFS[u.type].maxMoves;u.acted=false;}); civ.units.slice().forEach(u=>{ if(actions>=AI_LIMITS.maxActionsPerTurn)return; if(aiAttackBarbarian(civ,u)){actions++;return;} const adjCamp=neighborsOf(u.x,u.y,mapSizeCells()).find(p=>campAt(p.x,p.y)); if(adjCamp&&u.type!=='scout'){ const camp=campAt(adjCamp.x,adjCamp.y); camp.hp-=damageAmount(UNIT_DEFS[u.type].attack||8,12); if(camp.hp<=0) campReward(civ,u,adjCamp.x,adjCamp.y); actions++; return; } if(u.type==='settler'&&canRivalFoundCity(civ,u)){ const city={id:civ.civilizationId+'-city'+civ.cities.length,name:'Ривен '+civ.cities.length,x:u.x,y:u.y,population:1,food:0,production:0,buildings:[],queue:null,hp:150,maxHp:150,youngUntil:state.turn+3}; civ.cities.push(city); civ.units=civ.units.filter(x=>x.id!==u.id); logEvent(state,'rival-city-founded',civ.name+' основал город '+city.name+'.',{x:city.x,y:city.y},{actorType:'civilization',actorId:civ.civilizationId,phase:'rivals'}); actions++; return; } const nearBarb=state.barbarians.concat([]).sort((a,b)=>chebyshev(u.x,u.y,a.x,a.y)-chebyshev(u.x,u.y,b.x,b.y))[0]; const nearCamp=[]; state.map.forEach((r,y)=>r.forEach((t,x)=>{if(t.camp)nearCamp.push({x,y});})); nearCamp.sort((a,b)=>chebyshev(u.x,u.y,a.x,a.y)-chebyshev(u.x,u.y,b.x,b.y)); const target=nearBarb&&chebyshev(u.x,u.y,nearBarb.x,nearBarb.y)<=7?nearBarb:(nearCamp[0]&&chebyshev(u.x,u.y,nearCamp[0].x,nearCamp[0].y)<=8?nearCamp[0]:nearestUnknown(u,civ)); if(target) stepToward(u,target,civ); actions++; }); }); if(rivals.length>=2&&state.turn>=AI_LIMITS.minWarTurn){ const a=rivals[0], b=rivals[1]; a.diplomacy=a.diplomacy||{}; if(!a.diplomacy[b.civilizationId]){ a.diplomacy[b.civilizationId]='war'; b.diplomacy=b.diplomacy||{}; b.diplomacy[a.civilizationId]='war'; logEvent(state,'rival-war-declared',a.name+' и '+b.name+' начали войну.',null,{actorType:'civilization',actorId:a.civilizationId,phase:'rivals'}); } } checkCivilizationDiscovery(); return actions; }
+
+
+  function projectCard(type, id) {
+    const city = activeCity();
+    const def = projectDef(type, id), isBuilding = type === 'building';
+    const done = isBuilding && (city.buildings||[]).includes(id);
+    const locked = def.tech && !hasTech(def.tech);
+    const populationLocked = (id === 'palace' && city.population < 6) || (!isBuilding && city.population < def.population);
+    const busy = !!city.queue;
+    const affordable = canAfford(nonProductionCost(def.cost));
+    let button = done ? '<button class="card-button neutral" disabled>Построено</button>' : locked ? '<button class="card-button neutral" disabled>Нужно: '+TECHS[def.tech].name+'</button>' : populationLocked ? '<button class="card-button neutral" disabled>Население</button>' : busy ? '<button class="card-button neutral" disabled>Очередь занята</button>' : '<button class="card-button '+(affordable?'':'neutral')+'" data-queue-type="'+type+'" data-queue-id="'+id+'" '+(affordable?'':'disabled')+'>'+formatCost(def.cost)+'</button>';
+    return '<article class="game-card '+(done?'done':'')+'"><div><h3>'+def.icon+' '+def.name+'</h3><p>'+def.description+'</p></div>'+button+'</article>';
+  }
+  function openCity() {
+    const city = activeCity(); selectedCityId = city.id;
+    const income = cityIncome(city), need = growthNeed(city.population), progress = Math.min(100, (city.food||0) / need * 100);
+    const built = (city.buildings||[]).length ? city.buildings.map(id=>'<span class="chip">'+BUILDINGS[id].icon+' '+BUILDINGS[id].name+'</span>').join('') : '<span class="chip">Пока нет зданий</span>';
+    const tabs = playerCities().map(c=>'<button class="tiny-btn '+(c.id===city.id?'':'secondary')+'" data-city-select="'+c.id+'">'+escapeHtml(c.name)+'</button>').join('');
+    let queueHtml = '<div class="inline-note">Очередь пуста. Производство копится локально в этом городе: 🔨 '+Math.floor(city.production||0)+'.</div>';
+    if (city.queue) { const q=city.queue, pct=Math.min(100,q.progress/q.cost*100); queueHtml='<div class="queue-box"><div class="queue-head"><strong>'+projectLabel(q)+'</strong><span>+'+income.production+' 🔨 за ход</span></div><div class="progress"><span style="width:'+pct+'%"></span></div><div class="progress-label"><span>🔨 '+Math.floor(q.progress)+' / '+q.cost+'</span><span>примерно '+Math.max(1,Math.ceil((q.cost-q.progress)/Math.max(1,income.production)))+' ход.</span></div><div class="queue-actions"><button id="rushQueueBtn" class="tiny-btn secondary" '+((city.production||0)>0?'':'disabled')+'>Вложить локальные 🔨 '+Math.floor(city.production||0)+'</button><button id="cancelQueueBtn" class="tiny-btn danger">Отменить</button></div></div>'; }
+    cityModalTitle.textContent = city.name;
+    cityContent.innerHTML = '<div class="section-title">Города</div><div class="queue-actions">'+tabs+'</div><div class="summary-grid"><div class="summary-card"><strong>'+city.population+'</strong><small>население</small></div><div class="summary-card"><strong>'+Math.floor(city.hp)+'/'+city.maxHp+'</strong><small>здоровье</small></div><div class="summary-card"><strong>'+Math.floor(city.production||0)+'</strong><small>локальное производство</small></div></div><div class="progress"><span style="width:'+progress+'%"></span></div><div class="progress-label"><span>🍞 '+Math.floor(city.food||0)+' / '+need+'</span><span>+'+income.food+' за ход</span></div><div class="section-title">Очередь производства</div>'+queueHtml+'<div class="section-title">Построено</div><div class="built-list">'+built+'</div><div class="section-title">Нанять юнита</div><div class="card-list">'+Object.keys(UNIT_DEFS).map(id=>projectCard('unit',id)).join('')+'</div><div class="section-title">Построить здание</div><div class="card-list">'+Object.keys(BUILDINGS).map(id=>projectCard('building',id)).join('')+'</div>';
+    cityContent.querySelectorAll('[data-city-select]').forEach(b=>b.onclick=function(){ selectedCityId=b.dataset.citySelect; const c=activeCity(); centerCameraOnTile(c.x,c.y,true); openCity(); });
+    cityContent.querySelectorAll('[data-queue-type]').forEach(b=>b.onclick=function(){ queueProject(b.dataset.queueType,b.dataset.queueId); });
+    const rush=document.getElementById('rushQueueBtn'); if(rush)rush.onclick=rushQueue; const cancel=document.getElementById('cancelQueueBtn'); if(cancel)cancel.onclick=cancelQueue;
+    openModal('cityModal');
+  }
+
   cityBtn.addEventListener("click", openCity);
   scienceBtn.addEventListener("click", openScience);
   menuBtn.addEventListener("click", openMenu);
@@ -3340,9 +3400,10 @@
     saveCamera();
   });
 
+  window.__epohiDebug = function(){ return { state: state, endTurn: endTurn, foundCity: foundCity, canFoundCity: canFoundCity, processBarbarians: processBarbarians, processRivals: processRivals }; };
   openDb().then(function(db){ db.close(); storageAvailable = true; return migrateOldSaveIfNeeded(); }).catch(function(error){ storageAvailable = false; storageWarning = "IndexedDB недоступна: " + error.message + ". Пять слотов отключены, старое localStorage-сохранение не изменяется."; }).finally(function(){
     openMainMenu();
-    if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.4-alpha: первые цивилизации-соперники, войны, развитие ИИ и летопись мира", 3600); }, 350); }
+    if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.4.1-alpha: варвары воюют со всеми, цивилизации сражаются между собой, а поселенцы основывают настоящие города", 3600); }, 350); }
   });
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
