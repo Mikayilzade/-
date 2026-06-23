@@ -1550,11 +1550,27 @@
   }
 
   function occupiedForStart(gs, x, y) {
-    return (gs.units||[]).some(function(u){return u.x===x&&u.y===y;}) || (gs.rivals||[]).some(function(civ){ return (civ.units||[]).some(function(u){return u.x===x&&u.y===y;}) || (civ.cities||[]).some(function(c){return c.x===x&&c.y===y;}); }) || playerCitiesForState(gs).some(function(c){return c.x===x&&c.y===y;});
+    return (gs.units||[]).some(function(u){return u.x===x&&u.y===y;}) ||
+      (gs.rivals||[]).some(function(civ){ return (civ.units||[]).some(function(u){return u.x===x&&u.y===y;}) || (civ.cities||[]).some(function(c){return c.x===x&&c.y===y;}); }) ||
+      playerCitiesForState(gs).some(function(c){return c.x===x&&c.y===y;});
   }
   function playerCitiesForState(gs){ return (gs && Array.isArray(gs.cities) && gs.cities.length) ? gs.cities : (gs && gs.city ? [gs.city] : []); }
+  function validStartUnitSpot(gs, x, y) {
+    const tile = gs.map[y] && gs.map[y][x];
+    return !!tile && passableTile(tile) && !tile.camp && !tile.poi && !occupiedForStart(gs, x, y);
+  }
   function findStartUnitSpot(gs, city) {
-    return neighborsOf(city.x, city.y, mapSizeCells(gs)).find(function(p){ const t=gs.map[p.y][p.x]; return passableTile(t) && !t.camp && !t.poi && !occupiedForStart(gs,p.x,p.y); }) || {x:city.x,y:city.y};
+    const size = mapSizeCells(gs);
+    for (let radius = 1; radius < size; radius++) {
+      const candidates = [];
+      for (let y = Math.max(0, city.y - radius); y <= Math.min(size - 1, city.y + radius); y++) {
+        for (let x = Math.max(0, city.x - radius); x <= Math.min(size - 1, city.x + radius); x++) {
+          if (chebyshev(city.x, city.y, x, y) === radius && validStartUnitSpot(gs, x, y)) candidates.push({x:x, y:y});
+        }
+      }
+      if (candidates.length) return candidates[0];
+    }
+    throw new Error("Нет валидной клетки для стартового юнита рядом с " + (city.name || "городом"));
   }
   function placeStartingUnits(gs, city, list, civId) {
     ["scout","warrior"].forEach(function(type){ const spot=findStartUnitSpot(gs, city); const def=UNIT_DEFS[type]; list.push({id:(civId ? "ru"+(gs.nextRivalUnitId++) : "u"+(gs.nextUnitId++)), civilizationId:civId, type:type, x:spot.x, y:spot.y, moves:def.maxMoves, acted:false, hp:def.maxHealth, maxHp:def.maxHealth}); });
@@ -2289,7 +2305,7 @@
   function renderInspectTabs(x, y, layers) {
     if (layers.length <= 1) return;
     const wrap = document.createElement("div"); wrap.className = "inspect-tabs";
-    layers.forEach(function(layer){ const b=document.createElement("button"); b.className="inspect-tab"+(layer===inspectLayer?" active":""); b.textContent=layerName(layer); b.onclick=function(){ inspectLayer=layer; render(); }; wrap.appendChild(b); });
+    layers.forEach(function(layer){ const b=document.createElement("button"); b.className="inspect-tab"+(layer===inspectLayer?" active":""); b.dataset.inspectLayer=layer; b.setAttribute("aria-label", "Слой: " + layerName(layer)); b.textContent=layerName(layer); b.onclick=function(){ inspectLayer=layer; render(); }; wrap.appendChild(b); });
     contextActions.appendChild(wrap);
   }
   function ownerName(tile) {
@@ -2320,7 +2336,7 @@
       if (!item) return false;
       const city=item.city, inc=own?cityIncome(city):null;
       contextTitle.textContent = (city.capital?"🏛️ ":"▣ ") + city.name;
-      contextText.textContent = own ? ("Население: "+city.population+" · здоровье: "+Math.ceil(city.hp)+"/"+city.maxHp+" · локальные ресурсы: 🍞 "+Math.floor(city.food||0)+" 🔨 "+Math.floor(city.production||0)+" · очередь: "+(city.queue?projectLabel(city.queue):"пуста")+" · доход: "+yieldText(inc)) : ("Цивилизация: "+item.civ.name+" · население: "+city.population+" · здоровье: "+Math.ceil(city.hp)+"/"+city.maxHp+" · отношения: "+relationLabel(item.civ));
+      contextText.textContent = own ? ("Население: "+city.population+" · здоровье: "+Math.ceil(city.hp)+"/"+city.maxHp+" · локальные ресурсы: 🍞 "+Math.floor(city.food||0)+" 🔨 "+Math.floor(city.production||0)+" · очередь: "+(city.queue?projectLabel(city.queue):"пуста")+" · доход: "+yieldText(inc)) : ("Владелец: "+item.civ.name+" · цивилизация: "+item.civ.name+" · население: "+city.population+" · здоровье: "+Math.ceil(city.hp)+"/"+city.maxHp+" · отношения: "+relationLabel(item.civ));
       if (own) contextActions.appendChild(actionButton("Открыть<br>город", "", function(){ selectedCityId=city.id; setResourceViewCity(city.id); openCity(); }, false));
       else contextActions.appendChild(actionButton("Дипломатия", "alt", function(){ openDiplomacyFor(item.civ.civilizationId); }, false));
       return true;
@@ -2366,7 +2382,7 @@
 
     const inspected = renderInspect(x, y);
 
-    if (activeUnit && activeUnit.x === x && activeUnit.y === y) {
+    if ((!inspected || inspectLayer === "unit") && activeUnit && activeUnit.x === x && activeUnit.y === y) {
       const def = UNIT_DEFS[activeUnit.type];
       contextTitle.textContent = def.icon + " " + def.name;
       contextText.textContent = def.description + " · здоровье: " + Math.ceil(activeUnit.hp) + "/" + activeUnit.maxHp + " · атака: " + (def.attack || 0) + " · защита: " + (def.defense || 0) + " · ходов осталось: " + activeUnit.moves;
