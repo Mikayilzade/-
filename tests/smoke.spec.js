@@ -139,32 +139,33 @@ test.describe('v1.4.3 map object inspection', () => {
   test('shows unit, city, and tile tabs when a unit stands in a city', async ({ page }) => {
     await clearStorage(page); await createGame(page, 0, 'small');
     const r = await page.evaluate(() => { const d=window.__epohiDebug(), s=d.state, u=s.units[0]; u.x=s.city.x; u.y=s.city.y; d.render(); return {x:u.x,y:u.y}; });
-    await page.locator(`.tile[data-x="${r.x}"][data-y="${r.y}"]`).click();
-    await expect(page.locator('.piece.city')).toBeVisible();
-    await expect(page.locator('.piece.unit')).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Юнит' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Город' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Клетка' })).toBeVisible();
+    const targetTile = page.locator(`.tile[data-x="${r.x}"][data-y="${r.y}"]`);
+    await targetTile.click();
+    await expect(targetTile.locator('.piece.city')).toBeVisible();
+    await expect(targetTile.locator('.piece.unit')).toBeVisible();
+    await expect(page.locator('.inspect-tab[data-inspect-layer="unit"]')).toBeVisible();
+    await expect(page.locator('.inspect-tab[data-inspect-layer="city"]')).toBeVisible();
+    await expect(page.locator('.inspect-tab[data-inspect-layer="tile"]')).toBeVisible();
   });
 
   test('tile inspection shows coordinates yields and fades only selected objects', async ({ page }) => {
     await clearStorage(page); await createGame(page, 0, 'small');
     const r = await page.evaluate(() => { const d=window.__epohiDebug(), s=d.state, u=s.units[0]; d.render(); return {x:u.x,y:u.y}; });
     const tile = page.locator(`.tile[data-x="${r.x}"][data-y="${r.y}"]`);
-    await tile.click(); await page.getByRole('button', { name: 'Клетка' }).click();
+    await tile.click(); await page.locator('.inspect-tab[data-inspect-layer="tile"]').click();
     await expect(page.locator('#contextText')).toContainText(`X ${r.x}, Y ${r.y}`);
     await expect(page.locator('#contextText')).toContainText('доход:');
     await expect(tile).toHaveClass(/inspect-layer-tile/);
-    await page.getByRole('button', { name: 'Юнит' }).click();
+    await page.locator('.inspect-tab[data-inspect-layer="unit"]').click();
     await expect(tile).not.toHaveClass(/inspect-layer-tile/);
   });
 
   test('active unit remains selected while inspecting tile layer', async ({ page }) => {
     await clearStorage(page); await createGame(page, 0, 'small');
     const r = await page.evaluate(() => { const d=window.__epohiDebug(), s=d.state, u=s.units[0]; d.render(); return {id:u.id,x:u.x,y:u.y}; });
-    await page.locator(`.tile[data-x="${r.x}"][data-y="${r.y}"]`).click(); await page.getByRole('button', { name: 'Клетка' }).click();
+    await page.locator(`.tile[data-x="${r.x}"][data-y="${r.y}"]`).click(); await page.locator('.inspect-tab[data-inspect-layer="tile"]').click();
     expect(await page.evaluate(() => window.__epohiDebug().getSelectedUnitId())).toBe(r.id);
-    await page.getByRole('button', { name: 'Юнит' }).click();
+    await page.locator('.inspect-tab[data-inspect-layer="unit"]').click();
     await expect(page.getByRole('button', { name: /Идти|Ремонт|Основать|Выбрать/ }).first()).toBeVisible({ timeout: 1000 }).catch(() => {});
   });
 
