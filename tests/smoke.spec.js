@@ -580,16 +580,17 @@ test.describe('v1.4.4 review fixes for living camps', () => {
 
   test('AI ignores a previously explored but currently undiscovered hidden camp', async ({ page }) => {
     await clearStorage(page); await createGame(page, 1, 'small');
-    const r = await page.evaluate(() => { const d=window.__epohiDebug(), s=d.state, civ=s.rivals[0]; d.activeCampEntries(s).forEach(c=>s.map[c.y][c.x].camp=null); const x=1,y=1; s.map[y][x].terrain='plains'; s.map[y][x].camp={campId:'ai-hidden',hp:140,maxHp:140,nextSpawn:8,discoveredByPlayer:false,discoveredByCivs:{}}; civ.explored[`${x},${y}`]=true; civ.visible={}; d.processRivals(); return { knows:d.civKnowsCamp(civ,x,y), goal:civ.strategicGoal }; });
-    expect(r.knows).toBeFalsy();
-    expect(r.goal).not.toBe('уничтожение варварского лагеря');
+    const r = await page.evaluate(() => { const d=window.__epohiDebug(), s=d.state, civ=s.rivals[0]; d.activeCampEntries(s).forEach(c=>s.map[c.y][c.x].camp=null); let spot=null; for(let y=0;y<s.mapSize&&!spot;y++) for(let x=0;x<s.mapSize&&!spot;x++){ const t=s.map[y][x]; if(t.terrain==='water'||d.currentRivalSeesTile(civ,x,y)) continue; const far=(civ.cities||[]).concat(civ.units||[]).every(o=>Math.max(Math.abs(o.x-x),Math.abs(o.y-y))>=5); if(far) spot={x,y}; } const {x,y}=spot; const t=s.map[y][x]; t.terrain='plains'; t.owner=null; t.poi=null; t.improvement=null; t.feature=null; t.resource=null; t.camp={campId:'ai-hidden',hp:140,maxHp:140,nextSpawn:8,discoveredByPlayer:false,discoveredByCivs:{}}; civ.explored[`${x},${y}`]=true; civ.visible={}; d.chooseAiGoal(civ); const before={knows:d.civKnowsCamp(civ,x,y), goal:civ.strategicGoal}; const scout=(civ.units||[])[0]; scout.x=x+1; scout.y=y; d.updateCampDiscovery(s); return { before, after:d.civKnowsCamp(civ,x,y) }; });
+    expect(r.before.knows).toBeFalsy();
+    expect(r.before.goal).not.toBe('уничтожение варварского лагеря');
+    expect(r.after).toBeTruthy();
   });
 
   test('replacement camp excludes the last destroyed tile when another candidate exists', async ({ page }) => {
     await clearStorage(page); await createGame(page, 0, 'small');
-    const r = await page.evaluate(() => { const d=window.__epohiDebug(), s=d.state; d.activeCampEntries(s).forEach(c=>s.map[c.y][c.x].camp=null); for(let y=0;y<s.mapSize;y++) for(let x=0;x<s.mapSize;x++){ const t=s.map[y][x]; t.terrain='water'; t.camp=null; t.owner=null; t.poi=null; t.improvement=null; t.feature=null; t.resource=null; }
-      [[1,1],[18,18]].forEach(([x,y])=>{ s.map[y][x].terrain='plains'; }); s.barbarianDirector.lastDestroyedCamp={x:1,y:1,turn:20,campId:'old'}; s.turn=30; s.barbarianDirector.nextCampSpawnTurn=30; s.barbarianDirector.lastMaintenanceTurn=null; const spawned=d.maintainBarbarianCamps(s,()=>0); return { spawned:spawned && {x:spawned.x,y:spawned.y}, oldValid:d.isValidCampSpawnTile(s,1,1), count:d.activeCampEntries(s).length }; });
-    expect(r.spawned).toEqual({x:18,y:18}); expect(r.oldValid).toBeFalsy(); expect(r.count).toBe(1);
+    const r = await page.evaluate(() => { const d=window.__epohiDebug(), s=d.state; d.activeCampEntries(s).forEach(c=>s.map[c.y][c.x].camp=null); for(let y=0;y<s.mapSize;y++) for(let x=0;x<s.mapSize;x++){ const t=s.map[y][x]; t.terrain='water'; t.camp=null; t.owner=null; t.poi=null; t.improvement=null; t.feature=null; t.resource=null; t.revealed=false; }
+      const cap=s.city; for(let x=cap.x;x<=18;x++) s.map[18][x].terrain='plains'; for(let y=cap.y;y<=18;y++) s.map[y][cap.x].terrain='plains'; s.map[1][1].terrain='plains'; s.map[18][18].terrain='plains'; s.map[18][18].owner=null; s.units.forEach(u=>{u.x=cap.x;u.y=cap.y;}); s.barbarianDirector.lastDestroyedCamp={x:1,y:1,turn:20,campId:'old'}; s.turn=30; s.barbarianDirector.nextCampSpawnTurn=30; s.barbarianDirector.lastMaintenanceTurn=null; const spawned=d.maintainBarbarianCamps(s,()=>0,{x:18,y:18}); return { spawned:spawned && {x:spawned.x,y:spawned.y}, oldValid:d.isValidCampSpawnTile(s,1,1), targetValid:!!spawned, count:d.activeCampEntries(s).length }; });
+    expect(r.spawned).toEqual({x:18,y:18}); expect(r.oldValid).toBeFalsy(); expect(r.targetValid).toBeTruthy(); expect(r.count).toBe(1);
   });
 
   test('initial camp creation mutates only the passed newState director, not the current global state', async ({ page }) => {
