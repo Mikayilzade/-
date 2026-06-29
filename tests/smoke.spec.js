@@ -660,19 +660,66 @@ test.describe('v1.4.5 mobile context card and AI notices', () => {
 
   test('two own units never create duplicate select buttons and cycle one unit at a time', async ({ page }) => {
     await clearStorage(page); await createGame(page, 0, 'small');
-    const setup = await page.evaluate(() => { const d=window.__epohiDebug(), s=d.state, cap=s.city; const a=s.units[0]; a.x=cap.x+1; a.y=cap.y; const b={id:'second-own',type:'warrior',x:a.x,y:a.y,moves:1,acted:false,hp:90,maxHp:90}; s.map[a.y][a.x].terrain='plains'; s.map[a.y][a.x].revealed=true; s.units.push(b); d.render(); return {x:a.x,y:a.y, first:a.id}; });
+
+    const setup = await page.evaluate(() => {
+      const d = window.__epohiDebug();
+      const s = d.state;
+      const cap = s.city;
+      const active = s.units[0];
+      const firstOnTile = s.units[1];
+      const x = cap.x + 1;
+      const y = cap.y;
+      active.x = cap.x;
+      active.y = cap.y;
+      firstOnTile.x = x;
+      firstOnTile.y = y;
+      const tile = s.map[y][x];
+      tile.terrain = 'plains';
+      tile.revealed = true;
+      tile.camp = null;
+      tile.poi = null;
+      tile.improvement = null;
+      s.units.push({ id:'second-on-tile', type:'warrior', x, y, moves:1, acted:false, hp:90, maxHp:90 });
+      d.render();
+      return { x, y, activeId: active.id };
+    });
+
     await page.locator(`.tile[data-x="${setup.x}"][data-y="${setup.y}"]`).click();
     await expect(page.locator('#contextActions [data-context-action="select-unit"]')).toHaveCount(1);
-    await expect(page.locator('#contextActions').getByText('Выбрать')).toHaveCount(1);
+    await expect(page.locator('#contextActions [data-context-action="cycle-unit"]')).toHaveCount(0);
+
     await page.locator('#contextActions [data-context-action="select-unit"]').click();
+    const selectedOnTile = await page.evaluate(({ x, y }) => {
+      const d = window.__epohiDebug();
+      const selectedId = d.getSelectedUnitId();
+      const unit = d.state.units.find(u => u.id === selectedId);
+      return { selectedId, onTile: unit && unit.x === x && unit.y === y };
+    }, setup);
+    expect(selectedOnTile.selectedId).not.toBe(setup.activeId);
+    expect(selectedOnTile.onTile).toBeTruthy();
+    await expect(page.locator('#contextActions [data-context-action="select-unit"]')).toHaveCount(0);
     await expect(page.locator('#contextActions [data-context-action="cycle-unit"]')).toHaveCount(1);
+
     const before = await page.evaluate(() => window.__epohiDebug().getSelectedUnitId());
     await page.locator('#contextActions [data-context-action="cycle-unit"]').click();
     const after = await page.evaluate(() => window.__epohiDebug().getSelectedUnitId());
     expect(after).not.toBe(before);
     await page.evaluate(() => window.__epohiDebug().renderContext());
     await page.evaluate(() => window.__epohiDebug().renderContext());
+    await expect(page.locator('#contextActions [data-context-action="select-unit"]')).toHaveCount(0);
     await expect(page.locator('#contextActions [data-context-action="cycle-unit"]')).toHaveCount(1);
+
+    const activeHereSetup = await page.evaluate(({ x, y }) => {
+      const d = window.__epohiDebug();
+      d.state.units[0].x = x;
+      d.state.units[0].y = y;
+      d.render();
+      return { selectedId: d.getSelectedUnitId() };
+    }, setup);
+    await page.locator(`.tile[data-x="${setup.x}"][data-y="${setup.y}"]`).click();
+    await expect(page.locator('#contextActions [data-context-action="select-unit"]')).toHaveCount(0);
+    await expect(page.locator('#contextActions [data-context-action="cycle-unit"]')).toHaveCount(1);
+    expect(activeHereSetup.selectedId).toBeTruthy();
   });
 
   test('AI unit entering vision creates one unit-spotted notice and visible movement does not repeat', async ({ page }) => {
@@ -680,8 +727,10 @@ test.describe('v1.4.5 mobile context card and AI notices', () => {
     const result = await page.evaluate(() => { const d=window.__epohiDebug(), s=d.state, civ=s.rivals[0], u=civ.units[0], cap=s.city; for(let y=0;y<s.mapSize;y++) for(let x=0;x<s.mapSize;x++){ s.map[y][x].terrain='plains'; s.map[y][x].revealed=false; } s.units.forEach(unit=>{ unit.x=cap.x; unit.y=cap.y; }); u.x=cap.x+3; u.y=cap.y; u.last=null; u.moves=3; s.turn=77; d.render(); const before=s.eventLog.filter(e=>e.eventType==='unit-spotted').length; d.stepToward(u,{x:cap.x+1,y:cap.y},civ); d.stepToward(u,{x:cap.x,y:cap.y},civ); d.stepToward(u,{x:cap.x+1,y:cap.y},civ); const spots=s.eventLog.filter(e=>e.eventType==='unit-spotted'); return { added:spots.length-before, event:spots[0] }; });
     expect(result.added).toBe(1);
     expect(result.event).toMatchObject({ eventType: 'unit-spotted', actorType: 'civilization' });
-    expect(result.event.message).toMatch(/замечен/);
-    expect(result.event.x).toBeGreaterThanOrEqual(0);
+    expect(result.event.text).toMatch(/замечен/);
+    expect(result.event.coordinates).toEqual(expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) }));
+    expect(result.event.coordinates.x).toBeGreaterThanOrEqual(0);
+    expect(result.event.coordinates.y).toBeGreaterThanOrEqual(0);
   });
 
   test('hidden AI movement outside current vision does not enter player chronicle', async ({ page }) => {
