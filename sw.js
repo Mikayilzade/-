@@ -1,4 +1,4 @@
-const CACHE_NAME = "epohi-v1-4-4-alpha-living-barbarian-camps-cache";
+const CACHE_NAME = "epohi-v1-4-5-alpha-mobile-context-log-cache";
 const APP_FILES = [
   "./",
   "./index.html",
