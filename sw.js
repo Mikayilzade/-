@@ -1,7 +1,8 @@
-const CACHE_NAME = "epohi-v1-4-5-1-hotfix-turn-unlock-cache";
+const CACHE_NAME = "epohi-v1-4-5-1-refactor-css-cache";
 const APP_FILES = [
   "./",
   "./index.html",
+  "./styles/app.css",
   "./manifest.webmanifest",
   "./apple-touch-icon.png",
   "./icon-192.png",
