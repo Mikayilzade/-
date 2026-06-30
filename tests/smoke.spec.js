@@ -57,6 +57,42 @@ test.describe('Epohi browser smoke', () => {
     await expectNoConsoleProblems(problems);
   });
 
+  test('external stylesheet is loaded and main layout keeps computed styles', async ({ page }) => {
+    const problems = watchConsole(page);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await clearStorage(page);
+    await createGame(page, 0, 'small');
+
+    const styleInfo = await page.evaluate(async () => {
+      const links = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+        .map((link) => link.getAttribute('href'));
+      const response = await fetch('./styles/app.css');
+      return {
+        links,
+        loaded: response.ok,
+        hasAppSheet: Array.from(document.styleSheets).some((sheet) => sheet.href && sheet.href.endsWith('/styles/app.css')),
+        contextDisplay: getComputedStyle(document.querySelector('.context')).display,
+        appDisplay: getComputedStyle(document.querySelector('#gameApp')).display,
+        appRows: getComputedStyle(document.querySelector('#gameApp')).gridTemplateRows,
+        toolbarDisplay: getComputedStyle(document.querySelector('.toolbar')).display,
+        toolbarHeight: document.querySelector('.toolbar').getBoundingClientRect().height,
+        endTurnVisible: !!(document.querySelector('#endTurnBtn').offsetWidth || document.querySelector('#endTurnBtn').offsetHeight)
+      };
+    });
+
+    expect(styleInfo.links.filter((href) => href === './styles/app.css')).toHaveLength(1);
+    expect(styleInfo.loaded).toBe(true);
+    expect(styleInfo.hasAppSheet).toBe(true);
+    expect(styleInfo.contextDisplay).toBe('flex');
+    expect(styleInfo.appDisplay).toBe('grid');
+    expect(styleInfo.appRows).not.toBe('none');
+    expect(styleInfo.toolbarDisplay).toBe('grid');
+    expect(styleInfo.toolbarHeight).toBeGreaterThan(0);
+    expect(styleInfo.endTurnVisible).toBe(true);
+    await expect(page.locator('#endTurnBtn')).toBeVisible();
+    await expectNoConsoleProblems(problems);
+  });
+
   for (const rivals of [0, 1, 2]) {
     test(`creates a new game with ${rivals} AI and starts the map`, async ({ page }) => {
       const problems = watchConsole(page);
