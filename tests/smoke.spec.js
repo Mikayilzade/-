@@ -57,6 +57,43 @@ test.describe('Epohi browser smoke', () => {
     await expectNoConsoleProblems(problems);
   });
 
+  test('external game script loads and initializes the application', async ({ page }) => {
+    const problems = watchConsole(page);
+    await clearStorage(page);
+    await page.goto('/');
+
+    const scriptInfo = await page.evaluate(async () => {
+      const scripts = Array.from(document.querySelectorAll('script[src]'))
+        .map((script) => script.getAttribute('src'));
+      const response = await fetch('./src/app.js');
+      return {
+        scripts,
+        loaded: response.ok,
+        hasAppScript: Array.from(document.scripts).some((script) => script.src.endsWith('/src/app.js')),
+        hasDebugHook: typeof window.__epohiDebug === 'function'
+      };
+    });
+
+    expect(scriptInfo.scripts.filter((src) => src === './src/app.js')).toHaveLength(1);
+    expect(scriptInfo.loaded).toBe(true);
+    expect(scriptInfo.hasAppScript).toBe(true);
+    expect(scriptInfo.hasDebugHook).toBe(true);
+
+    await page.getByRole('button', { name: 'Новая игра' }).click();
+    await page.locator('#partySize').selectOption('small');
+    await page.locator('#rivalCount').selectOption('0');
+    await page.locator('#partyName').fill(`External script ${Date.now()}`);
+    await page.getByRole('button', { name: 'Создать мир' }).click();
+
+    await expect(page.locator('#gameApp')).toBeVisible();
+    await expect(page.locator('#map .tile').first()).toBeVisible();
+    await expect(page.locator('#endTurnBtn')).toBeVisible();
+    await expect(page.locator('#turnValue')).toHaveText('1');
+    await page.locator('#endTurnBtn').click();
+    await expect(page.locator('#turnValue')).toHaveText('2');
+    await expectNoConsoleProblems(problems);
+  });
+
   test('external stylesheet is loaded and main layout keeps computed styles', async ({ page }) => {
     const problems = watchConsole(page);
     await page.setViewportSize({ width: 390, height: 844 });
