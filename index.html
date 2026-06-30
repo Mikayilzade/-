@@ -11,7 +11,7 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png" type="image/png">
   <link rel="apple-touch-icon" href="./apple-touch-icon.png">
-  <title>Эпохи v1.4.5-alpha — пошаговая стратегия</title>
+  <title>Эпохи v1.4.5.1-hotfix — пошаговая стратегия</title>
   <style>
     :root {
       --bg: #18231c;
@@ -1114,7 +1114,7 @@
     <header class="topbar">
       <div class="brand">
         <h1>Эпохи</h1>
-        <p id="subtitle">От племени к империи · v1.4.5-alpha</p>
+        <p id="subtitle">От племени к империи · v1.4.5.1-hotfix</p>
       </div>
       <div class="turn-card">
         <small id="eraLabel">Племя</small>
@@ -1220,7 +1220,7 @@
 
   const DEFAULT_MAP_SIZE = 28;
   const MAP_SIZES = { small: 20, normal: 28, large: 36 };
-  const GAME_VERSION = "v1.4.5-alpha";
+  const GAME_VERSION = "v1.4.5.1-hotfix";
   const SAVE_SCHEMA_VERSION = 4;
   const SAVE_KEY = "mika-epohi-v1-state";
   const CAMERA_KEY = "mika-epohi-v12-camera";
@@ -1784,7 +1784,9 @@
   function loadGame() { const raw = safeGet(SAVE_KEY); if (!raw) return null; try { return migrateState(JSON.parse(raw)); } catch (error) { return null; } }
   function setSaveStatus(text) { saveStatus = text; renderTop(); }
   function savingBlockedMessage() { return "Завершите текущее действие перед сохранением"; }
-  function canSaveNow() { return !!state && !endTurnBtn.disabled && !document.querySelector("#victoryModal.show"); }
+  let turnProcessing = false;
+  let autoSaveImpl = null;
+  function canSaveNow() { return !!state && !turnProcessing && !document.querySelector("#victoryModal.show"); }
 
   function ensureCampaign() {
     if (!state) return Promise.reject(new Error("Нет текущей партии"));
@@ -1826,6 +1828,7 @@
   }
 
   function autoSave(rotate) {
+    if (autoSaveImpl) return autoSaveImpl(rotate);
     if (!state) return Promise.resolve(null);
     autosaveWriteLock = autosaveWriteLock.catch(function(){}).then(function(){ return ensureCampaign().then(function(c){ return getCampaignSaves(c.campaignId).then(function(saves){
       const currentTurn = state.turn;
@@ -2964,32 +2967,50 @@
 
   function endTurn() {
     if (state.victory || state.defeat) { openVictory(); return; }
-    if (endTurnBtn.disabled) return;
+    if (turnProcessing) return;
+    turnProcessing = true;
     endTurnBtn.disabled = true;
     phaseBanner.classList.remove("is-hidden");
     showToast("Ход соперников", 900);
     setTimeout(function(){
-      const rivalActions = processRivals();
-      const barbarianText = processBarbarians();
-      const income = calculateIncome();
-      const completedProject = processProduction();
-      const grew = false;
-      const completedTech = finishResearch();
-      const eventText = randomEvent();
-      state.turn += 1;
-      maintainBarbarianCamps(state, Math.random);
-      state.units.forEach(function (unit) { unit.moves = UNIT_DEFS[unit.type].maxMoves; unit.acted = false; });
-      selected = null;
-      let message = "Города получили: 🍞" + income.food + " · 🔨" + income.production + " · 🪙" + income.gold + " · 🔬" + income.science;
-      if (rivalActions) message = "Соперники действуют: " + rivalActions + ". " + message;
-      if (grew) message = "Население выросло до " + state.city.population + "! " + message;
-      if (completedTech) message = completedTech.icon + " Изучено: " + completedTech.name + ". " + message;
-      if (completedProject) message = completedProject.text + " " + message;
-      if (eventText) message = eventText + ". " + message;
-      if (barbarianText) message += barbarianText;
-      phaseBanner.classList.add("is-hidden");
-      showToast(message, 3600); render();
-      autoSave(true).catch(function(){}).finally(function(){ endTurnBtn.disabled = false; if (completedProject && completedProject.victory) openVictory(); });
+      let completedProject = null;
+      try {
+        const rivalActions = processRivals();
+        const barbarianText = processBarbarians();
+        const income = calculateIncome();
+        completedProject = processProduction();
+        const grew = false;
+        const completedTech = finishResearch();
+        const eventText = randomEvent();
+        state.turn += 1;
+        maintainBarbarianCamps(state, Math.random);
+        state.units.forEach(function (unit) { unit.moves = UNIT_DEFS[unit.type].maxMoves; unit.acted = false; });
+        selected = null;
+        let message = "Города получили: 🍞" + income.food + " · 🔨" + income.production + " · 🪙" + income.gold + " · 🔬" + income.science;
+        if (rivalActions) message = "Соперники действуют: " + rivalActions + ". " + message;
+        if (grew) message = "Население выросло до " + state.city.population + "! " + message;
+        if (completedTech) message = completedTech.icon + " Изучено: " + completedTech.name + ". " + message;
+        if (completedProject) message = completedProject.text + " " + message;
+        if (eventText) message = eventText + ". " + message;
+        if (barbarianText) message += barbarianText;
+        showToast(message, 3600);
+        if (completedProject && completedProject.victory) openVictory();
+      } catch (error) {
+        console.error(error);
+        showToast("Ошибка расчёта хода. Игра разблокирована.", 3600);
+      } finally {
+        turnProcessing = false;
+        endTurnBtn.disabled = false;
+        phaseBanner.classList.add("is-hidden");
+        render();
+      }
+      autoSave(true).catch(function () {
+        setSaveStatus("Ошибка автосохранения");
+        showToast(
+          "Автосохранение не удалось. Игра продолжается; попробуйте сохранить вручную.",
+          4200
+        );
+      });
     }, 120);
   }
 
@@ -3100,7 +3121,7 @@
     }).join("");
 
     wikiContent.innerHTML =
-      '<div class="section-title">Что изменилось в v1.4.5-alpha</div>' +
+      '<div class="section-title">Что изменилось в v1.4.5.1-hotfix</div>' +
       '<div class="wiki-callout"><strong>Мобильная карточка и летопись.</strong> Осмотр клетки разделён на заголовок, прокручиваемое описание, отдельные вкладки слоёв и отдельные действия. Длинные описания юнитов, городов и лагерей читаются полностью, вкладки и кнопки листаются горизонтально, а юниты ИИ пишут в летопись только первое появление из тумана войны.</div>' +
       '<div class="section-title">Юниты и карта</div>' +
       '<div class="wiki-list">' +
@@ -3125,7 +3146,7 @@
       '<details class="wiki-details"><summary>Технологии</summary><div class="wiki-details-body"><div class="card-list">' + techs + '</div></div></details>' +
       '<div class="section-title">Условие победы</div>' +
       '<div class="wiki-callout">Изучи «Государственность», вырасти до населения 6 и заверши 🏰 Дворец в городской очереди.</div>' +
-      '<div class="section-title">Города и варвары v1.4.1</div><div class="wiki-callout">Поселенец теперь основывает полноценный город с локальной едой, локальным производством и собственной очередью. Золото, наука, артефакты и технологии остаются общими. Форпосты старых партий сохраняются как наследуемые пограничные объекты. Варвары воюют со всеми, имеют безопасный период и настраиваемую активность. ИИ защищает города и гражданских, атакует налётчиков, ходит к близким лагерям, получает награды за лагеря и может воевать с другими ИИ после 20 хода.</div><div class="section-title">Цивилизации-соперники</div><div class="wiki-callout">В v1.4.5-alpha новая партия может иметь 0–2 соперника. Они имеют отдельные ресурсы, технологии, города, юнитов, собственный туман войны и журнал решений. Первая версия использует общую логику ИИ с разными названиями, цветами и символами.</div><details class="wiki-details" open><summary>Встреча, нейтралитет и война</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Встреча", "Государство неизвестно, пока игрок не увидит его юнит, город или территорию.") + wikiRow("Статусы", "Есть неизвестен, нейтрален и война. Нейтральные стороны не атакуют друг друга; атака игрока требует подтверждения через панель цивилизаций.") + wikiRow("ИИ", "До 20 хода соперник не начинает войну сам, но после этого оценивает силу армии, расстояние и угрозы.") + '</div></div></details><details class="wiki-details"><summary>Развитие ИИ, захват городов и победа</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Развитие ИИ", "ИИ выбирает цель по весам: разведка, защита, улучшения, поселенец, лагеря, подготовка войны.") + wikiRow("Города", "Города имеют здоровье и не должны падать от одного удара; полный захват столиц — военная победа.") + wikiRow("Летопись", "Крупные события пишутся в ограниченный журнал, который сохраняется в snapshots кампании.") + '</div></div></details><div class="section-title">Что ещё впереди</div>' +
+      '<div class="section-title">Города и варвары v1.4.1</div><div class="wiki-callout">Поселенец теперь основывает полноценный город с локальной едой, локальным производством и собственной очередью. Золото, наука, артефакты и технологии остаются общими. Форпосты старых партий сохраняются как наследуемые пограничные объекты. Варвары воюют со всеми, имеют безопасный период и настраиваемую активность. ИИ защищает города и гражданских, атакует налётчиков, ходит к близким лагерям, получает награды за лагеря и может воевать с другими ИИ после 20 хода.</div><div class="section-title">Цивилизации-соперники</div><div class="wiki-callout">В v1.4.5.1-hotfix новая партия может иметь 0–2 соперника. Они имеют отдельные ресурсы, технологии, города, юнитов, собственный туман войны и журнал решений. Первая версия использует общую логику ИИ с разными названиями, цветами и символами.</div><details class="wiki-details" open><summary>Встреча, нейтралитет и война</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Встреча", "Государство неизвестно, пока игрок не увидит его юнит, город или территорию.") + wikiRow("Статусы", "Есть неизвестен, нейтрален и война. Нейтральные стороны не атакуют друг друга; атака игрока требует подтверждения через панель цивилизаций.") + wikiRow("ИИ", "До 20 хода соперник не начинает войну сам, но после этого оценивает силу армии, расстояние и угрозы.") + '</div></div></details><details class="wiki-details"><summary>Развитие ИИ, захват городов и победа</summary><div class="wiki-details-body"><div class="wiki-list">' + wikiRow("Развитие ИИ", "ИИ выбирает цель по весам: разведка, защита, улучшения, поселенец, лагеря, подготовка войны.") + wikiRow("Города", "Города имеют здоровье и не должны падать от одного удара; полный захват столиц — военная победа.") + wikiRow("Летопись", "Крупные события пишутся в ограниченный журнал, который сохраняется в snapshots кампании.") + '</div></div></details><div class="section-title">Что ещё впереди</div>' +
       '<div class="inline-note">Форпост пока не является полноценным вторым городом: у него нет собственного населения и очереди. Варвары — первая нейтральная угроза; дипломатии и дорог пока нет.</div>';
 
     openModal("wikiModal");
@@ -3156,7 +3177,7 @@
     Promise.all([getCampaigns(), storageEstimateKb()]).then(function(res) {
       const campaigns = res[0].sort(function(a,b){ return String(b.lastPlayedAt).localeCompare(String(a.lastPlayedAt)); }); const approx = res[1];
       const cards = campaigns.length ? campaigns.map(function(c){ return '<article class="slot-card" data-campaign="'+c.campaignId+'"><strong>'+escapeHtml(c.name)+'</strong><small id="line-'+c.campaignId+'">'+c.mapSize+'×'+c.mapSize+' · '+formatDate(c.lastPlayedAt)+'</small><div class="slot-actions"><button data-continue="'+c.campaignId+'" class="menu-primary">Продолжить</button><button data-saves="'+c.campaignId+'" class="menu-primary secondary">Сохранения</button><button data-rename-campaign="'+c.campaignId+'" class="menu-primary secondary">Переименовать</button><button data-delete-campaign="'+c.campaignId+'" class="menu-primary danger">Удалить</button></div></article>'; }).join('') : '<div class="menu-hint">Партий пока нет. Создайте новый мир.</div>';
-      renderScreen('<h1 class="menu-title">ЭПОХИ</h1><p class="menu-version">v1.4.5-alpha</p>' + (storageWarning ? '<div class="screen-note">'+escapeHtml(storageWarning)+'</div>' : '') + '<div class="menu-hint">v1.4.5-alpha: мобильная карточка осмотра прокручивается, а летопись больше не спамит движениями ИИ.<br>Примерный размер данных: '+approx+' КБ.</div><div class="menu-stack"><button id="newGameScreenBtn" class="menu-primary">Новая игра</button><button id="wikiScreenBtn" class="menu-primary secondary">Вики</button><button id="settingsScreenBtn" class="menu-primary ghost">Настройки</button></div><div class="section-title">Партии</div><div class="slot-list">'+cards+'</div>');
+      renderScreen('<h1 class="menu-title">ЭПОХИ</h1><p class="menu-version">v1.4.5.1-hotfix</p>' + (storageWarning ? '<div class="screen-note">'+escapeHtml(storageWarning)+'</div>' : '') + '<div class="menu-hint">v1.4.5.1-hotfix: мобильная карточка осмотра прокручивается, а летопись больше не спамит движениями ИИ.<br>Примерный размер данных: '+approx+' КБ.</div><div class="menu-stack"><button id="newGameScreenBtn" class="menu-primary">Новая игра</button><button id="wikiScreenBtn" class="menu-primary secondary">Вики</button><button id="settingsScreenBtn" class="menu-primary ghost">Настройки</button></div><div class="section-title">Партии</div><div class="slot-list">'+cards+'</div>');
       campaigns.forEach(function(c){ getCampaignSaves(c.campaignId).then(function(saves){ const latest=saves[0]; const el=document.getElementById('line-'+c.campaignId); if(el) el.textContent = campaignLine(c, saves.length, latest && latest.turn); }); });
       document.getElementById("newGameScreenBtn").onclick = openNewGameScreen; document.getElementById("wikiScreenBtn").onclick = function(){ setScreen("wiki"); openWiki(); document.querySelector('#wikiModal .close-btn').onclick = function(){ closeModal('wikiModal'); openMainMenu(); }; }; document.getElementById("settingsScreenBtn").onclick = openSettingsScreen;
       screenRoot.querySelectorAll('[data-continue]').forEach(function(b){ b.onclick=function(){ continueCampaign(b.dataset.continue); }; });
@@ -3659,10 +3680,10 @@
     saveCamera();
   });
 
-  window.__epohiDebug = function(){ return { state: state, endTurn: endTurn, foundCity: foundCity, canFoundCity: canFoundCity, foundCityBlockReason: foundCityBlockReason, renderContext: renderContext, processBarbarians: processBarbarians, processRivals: processRivals, stepToward: stepToward, targetActiveCampCount: targetActiveCampCount, isValidCampSpawnTile: isValidCampSpawnTile, findCampSpawnCandidates: findCampSpawnCandidates, spawnReplacementCamp: spawnReplacementCamp, maintainBarbarianCamps: maintainBarbarianCamps, scheduleNextCampSpawn: scheduleNextCampSpawn, activeCampEntries: activeCampEntries, countBarbariansForCamp: countBarbariansForCamp, migrateState: migrateState, createNewGame: createNewGame, campReward: campReward, playerKnowsCamp: playerKnowsCamp, civKnowsCamp: civKnowsCamp, updateCampDiscovery: updateCampDiscovery, chooseAiGoal: chooseAiGoal, currentRivalSeesTile: currentRivalSeesTile, buildImprovementWithWorker: buildImprovementWithWorker, repairImprovement: repairImprovement, render: render, setResourceViewCity: setResourceViewCity, setResourceViewEmpire: setResourceViewEmpire, cycleResourceView: cycleResourceView, queueProject: queueProject, cityIncome: cityIncome, inspectLayersAt: inspectLayersAt, validStartUnitSpot: validStartUnitSpot, findStartUnitSpot: findStartUnitSpot, placeStartingUnits: placeStartingUnits, getSelectedUnitId: function(){ return selectedUnitId; }, getInspectLayer: function(){ return inspectLayer; }, setActiveCity: function(id){ selectedCityId = id; setResourceViewCity(id); } }; };
+  window.__epohiDebug = function(){ return { state: state, endTurn: endTurn, canSaveNow: canSaveNow, isTurnProcessing: function(){ return turnProcessing; }, setAutoSaveForTests: function(fn){ autoSaveImpl = fn; }, foundCity: foundCity, canFoundCity: canFoundCity, foundCityBlockReason: foundCityBlockReason, renderContext: renderContext, processBarbarians: processBarbarians, processRivals: processRivals, stepToward: stepToward, targetActiveCampCount: targetActiveCampCount, isValidCampSpawnTile: isValidCampSpawnTile, findCampSpawnCandidates: findCampSpawnCandidates, spawnReplacementCamp: spawnReplacementCamp, maintainBarbarianCamps: maintainBarbarianCamps, scheduleNextCampSpawn: scheduleNextCampSpawn, activeCampEntries: activeCampEntries, countBarbariansForCamp: countBarbariansForCamp, migrateState: migrateState, createNewGame: createNewGame, campReward: campReward, playerKnowsCamp: playerKnowsCamp, civKnowsCamp: civKnowsCamp, updateCampDiscovery: updateCampDiscovery, chooseAiGoal: chooseAiGoal, currentRivalSeesTile: currentRivalSeesTile, buildImprovementWithWorker: buildImprovementWithWorker, repairImprovement: repairImprovement, render: render, setResourceViewCity: setResourceViewCity, setResourceViewEmpire: setResourceViewEmpire, cycleResourceView: cycleResourceView, queueProject: queueProject, cityIncome: cityIncome, inspectLayersAt: inspectLayersAt, validStartUnitSpot: validStartUnitSpot, findStartUnitSpot: findStartUnitSpot, placeStartingUnits: placeStartingUnits, getSelectedUnitId: function(){ return selectedUnitId; }, getInspectLayer: function(){ return inspectLayer; }, setActiveCity: function(id){ selectedCityId = id; setResourceViewCity(id); } }; };
   openDb().then(function(db){ db.close(); storageAvailable = true; return migrateOldSaveIfNeeded(); }).catch(function(error){ storageAvailable = false; storageWarning = "IndexedDB недоступна: " + error.message + ". Пять слотов отключены, старое localStorage-сохранение не изменяется."; }).finally(function(){
     openMainMenu();
-    if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.4.5-alpha: мобильная карточка осмотра прокручивается, а летопись больше не спамит движениями ИИ", 3600); }, 350); }
+    if (!safeGet(UPDATE_KEY)) { safeSet(UPDATE_KEY, "1"); setTimeout(function(){ showToast("v1.4.5.1-hotfix: мобильная карточка осмотра прокручивается, а летопись больше не спамит движениями ИИ", 3600); }, 350); }
   });
 
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
